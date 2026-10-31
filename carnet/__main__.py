@@ -1,7 +1,7 @@
-"""Permet de lancer l'interface terminal avec : python -m carnet"""
+"""Permet de lancer le carnet avec : python -m carnet [--console]"""
 
 import sys
 
-from .cli import main
+from .lanceur import main
 
 sys.exit(main())

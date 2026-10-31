@@ -157,7 +157,7 @@ def menu(carnet: Carnet) -> None:
             print("⚠️ Option invalide, veuillez réessayer.")
 
 
-def _forcer_utf8() -> None:
+def forcer_utf8() -> None:
     # Sous Windows, la console ou une redirection peut être en cp1252, qui ne
     # sait pas encoder les emojis.
     for flux in (sys.stdout, sys.stderr):
@@ -166,7 +166,7 @@ def _forcer_utf8() -> None:
 
 
 def main(chemin: Path = FICHIER_CONTACTS) -> int:
-    _forcer_utf8()
+    forcer_utf8()
     try:
         carnet = Carnet(chemin)
     except ErreurChargement as e:

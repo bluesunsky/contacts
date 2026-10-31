@@ -1,0 +1,5 @@
+# Interface graphique
+PyQt6>=6.5
+
+# Tests (lanceur utilisé par la configuration VS Code ; python -m unittest suffit sinon)
+pytest>=8

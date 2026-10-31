@@ -121,14 +121,14 @@ class TestProgramme(TestAvecDossier):
         )
 
     def test_fin_d_entree_quitte_proprement(self):
-        resultat = self.lancer("", str(SCRIPT))
+        resultat = self.lancer("", str(SCRIPT), "--console")
 
         self.assertEqual(resultat.returncode, 0)
         self.assertNotIn(b"Traceback", resultat.stderr)
         self.assertIn("Au revoir", resultat.stdout.decode("utf-8"))
 
     def test_sortie_redirigee_avec_emojis_ne_plante_pas(self):
-        resultat = self.lancer("1\n5\n", str(SCRIPT))
+        resultat = self.lancer("1\n5\n", str(SCRIPT), "--console")
 
         self.assertEqual(resultat.returncode, 0, resultat.stderr.decode("utf-8", "replace"))
         self.assertNotIn(b"UnicodeEncodeError", resultat.stderr)
@@ -138,7 +138,7 @@ class TestProgramme(TestAvecDossier):
             self.skipTest("Aucun contacts.json à la racine du projet.")
         nb_contacts = len(json.loads(FICHIER_CONTACTS.read_text(encoding="utf-8")))
 
-        resultat = self.lancer("1\n5\n", str(SCRIPT))
+        resultat = self.lancer("1\n5\n", str(SCRIPT), "--console")
 
         self.assertIn(f"Liste des contacts ({nb_contacts})", resultat.stdout.decode("utf-8"))
 
