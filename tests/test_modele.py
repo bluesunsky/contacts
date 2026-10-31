@@ -59,8 +59,50 @@ class TestTelephone(unittest.TestCase):
     def test_vide_et_invalide(self):
         self.assertEqual(normaliser_telephone("  "), "")
         self.assertIsNone(normaliser_telephone("06 12 34 56 7"))
-        # Les lettres ne sont pas converties en chiffres comme sur un clavier.
-        self.assertIsNone(normaliser_telephone("06 12 34 56 7A"))
+
+    def test_lettres_refusees_et_non_converties_en_chiffres(self):
+        # Sans ce refus, la bibliothèque lirait « ABCD » comme « 2223 » (clavier).
+        for valeur in ["06 12 34 ABCD", "06 12 34 56 78 A"]:
+            with self.subTest(valeur=valeur):
+                self.assertIsNone(normaliser_telephone(valeur))
+
+    def test_outre_mer_compose_a_la_francaise(self):
+        cas = {
+            "0262 16 12 34": "+262 262 16 12 34",  # La Réunion
+            "0692 12 34 56": "+262 692 12 34 56",
+            "0269 60 12 34": "+262 269 60 12 34",  # Mayotte
+            "0590 20 12 34": "+590 590 20 12 34",  # Guadeloupe
+            "0594 10 12 34": "+594 594 10 12 34",  # Guyane
+            "0596 30 12 34": "+596 596 30 12 34",  # Martinique
+        }
+        for saisie, attendu in cas.items():
+            with self.subTest(saisie=saisie):
+                self.assertEqual(normaliser_telephone(saisie), attendu)
+
+    def test_numeros_metropolitains_non_detournes_vers_l_outre_mer(self):
+        self.assertEqual(normaliser_telephone("0800 12 34 56"), "+33 800 12 34 56")  # numéro vert
+        self.assertEqual(normaliser_telephone("01 23 45 67 89"), "+33 1 23 45 67 89")
+
+    def test_poste_etranger_ecrit_ext_et_relu_a_l_identique(self):
+        for saisie in ["+40 21 123 4567 poste 12", "+51 1 1234567 x 12", "+886 2 2123 4567 ext 12"]:
+            with self.subTest(saisie=saisie):
+                forme = normaliser_telephone(saisie)
+                self.assertTrue(forme.endswith(" ext. 12"), forme)
+                self.assertEqual(normaliser_telephone(forme), forme)
+
+    def test_espaces_unicode(self):
+        for espace in [" ", " ", "\t"]:
+            with self.subTest(espace=repr(espace)):
+                saisie = espace.join(["06", "12", "34", "56", "78"])
+                self.assertEqual(normaliser_telephone(saisie), "+33 6 12 34 56 78")
+
+    def test_valeur_sans_numero_reconnu_strictement_inchangee(self):
+        for valeur in [" ::: ", "a ::: b", "le standard"]:
+            with self.subTest(valeur=valeur):
+                self.assertEqual(uniformiser_telephone(valeur), valeur)
+
+    def test_morceaux_vides_retires_quand_un_numero_est_reconnu(self):
+        self.assertEqual(uniformiser_telephone("0611111111 ::: "), "+33 6 11 11 11 11")
 
     def test_valeur_multiple_et_non_reconnus_conserves(self):
         valeur = "0670010475 ::: inconnu ::: +33612345678"

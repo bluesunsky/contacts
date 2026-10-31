@@ -2,6 +2,6 @@
 
 import sys
 
-from .lanceur import main
+from . import lancer
 
-sys.exit(main())
+sys.exit(lancer())

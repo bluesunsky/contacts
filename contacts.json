@@ -46,14 +46,14 @@
         "Notes": "Numéro uniquement, pas d'adresse e-mail connue."
     },
     "Ancien Contact": {
-        "telephone": "01 02 03 04 05",
+        "telephone": "+33 1 02 03 04 05",
         "email": "ancien.contact@example.net"
     },
-    "Nom": {
+    "Benjamin": {
         "First Name": "Nom",
         "Last Name": "",
         "Phone 1 - Label": "Mobile",
-        "Phone 1 - Value": "06 70 01 04 75",
+        "Phone 1 - Value": "+33 6 70 01 04 75",
         "E-mail 1 - Label": "Home",
         "E-mail 1 - Value": "a@serant.fr",
         "Notes": ""

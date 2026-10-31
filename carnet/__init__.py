@@ -10,43 +10,58 @@ Organisation en couches, de la plus basse à la plus haute :
 - lanceur  : choix de l'interface selon l'option --console
 
 Les interfaces utilisent uniquement Carnet et les types du module modele.
-Ce paquet n'importe pas PyQt6 : le mode terminal fonctionne sans lui. Il
-nécessite en revanche phonenumbers pour valider et mettre au format les
-numéros de téléphone.
+Le mode terminal fonctionne sans PyQt6. phonenumbers est nécessaire dans
+tous les modes, pour valider et mettre au format les numéros de téléphone.
+
+Les noms exportés ci-dessous sont chargés à la demande : importer le paquet
+ne requiert aucune dépendance, ce qui permet à lancer() d'expliquer
+l'absence de phonenumbers au lieu d'afficher une trace d'erreur.
 """
+
+from __future__ import annotations
+
+import importlib
+import sys
 
 MESSAGE_PHONENUMBERS_ABSENT = (
     "Le carnet nécessite le paquet phonenumbers, qui n'est pas installé.\n"
     "Installez les dépendances avec : pip install -r requirements.txt"
 )
 
-try:
-    import phonenumbers  # noqa: F401
-except ModuleNotFoundError as e:
-    if e.name != "phonenumbers":
-        raise
-    raise ModuleNotFoundError(MESSAGE_PHONENUMBERS_ABSENT, name="phonenumbers") from None
+_EXPORTS = {
+    "Email": "modele",
+    "SaisieContact": "modele",
+    "Telephone": "modele",
+    "VueContact": "modele",
+    "Carnet": "service",
+    "ContactExistant": "service",
+    "ContactIntrouvable": "service",
+    "DonneesInvalides": "service",
+    "ErreurCarnet": "service",
+    "FICHIER_CONTACTS": "stockage",
+    "ErreurChargement": "stockage",
+}
 
-from .modele import Email, SaisieContact, Telephone, VueContact  # noqa: E402
-from .service import (  # noqa: E402
-    Carnet,
-    ContactExistant,
-    ContactIntrouvable,
-    DonneesInvalides,
-    ErreurCarnet,
-)
-from .stockage import FICHIER_CONTACTS, ErreurChargement  # noqa: E402
+__all__ = sorted(_EXPORTS) + ["lancer"]
 
-__all__ = [
-    "Carnet",
-    "ContactExistant",
-    "ContactIntrouvable",
-    "DonneesInvalides",
-    "Email",
-    "ErreurCarnet",
-    "ErreurChargement",
-    "FICHIER_CONTACTS",
-    "SaisieContact",
-    "Telephone",
-    "VueContact",
-]
+
+def __getattr__(nom: str):
+    if nom in _EXPORTS:
+        module = importlib.import_module(f".{_EXPORTS[nom]}", __name__)
+        return getattr(module, nom)
+    raise AttributeError(f"module {__name__!r} has no attribute {nom!r}")
+
+
+def lancer(argv: list[str] | None = None) -> int:
+    """Point d'entrée commun de contacts.py et de python -m carnet."""
+    try:
+        from .lanceur import main
+    except ModuleNotFoundError as e:
+        if e.name != "phonenumbers":
+            raise
+        if sys.stderr is not None:
+            if hasattr(sys.stderr, "reconfigure"):
+                sys.stderr.reconfigure(encoding="utf-8", errors="replace")
+            print(MESSAGE_PHONENUMBERS_ABSENT, file=sys.stderr)
+        return 1
+    return main(argv)

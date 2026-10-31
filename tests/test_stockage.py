@@ -1,5 +1,6 @@
 import json
 import unittest
+from datetime import datetime
 from pathlib import Path
 from unittest import mock
 
@@ -31,6 +32,19 @@ class TestChargement(TestAvecDossier):
         self.assertTrue(resultat.fichier_mis_de_cote.name.endswith(".bak"))
         self.assertEqual(resultat.fichier_mis_de_cote.read_text(encoding="utf-8"), "{ corrompu")
         self.assertIn("ligne 1", resultat.detail_erreur)
+
+    def test_deux_fichiers_corrompus_dans_la_meme_seconde_tous_deux_conserves(self):
+        fige = mock.Mock(wraps=datetime)
+        fige.now.return_value = datetime(2026, 10, 31, 14, 5, 1)
+
+        with mock.patch("carnet.stockage.datetime", fige):
+            self.ecrire("{ abîmé 1")
+            charger_contacts(self.chemin)
+            self.ecrire("{ abîmé 2")
+            charger_contacts(self.chemin)
+
+        contenus = sorted(p.read_text(encoding="utf-8") for p in self.dossier.glob("contacts.*.bak"))
+        self.assertEqual(contenus, ["{ abîmé 1", "{ abîmé 2"])
 
     def test_bom_utf8_accepte(self):
         self.chemin.write_bytes('﻿{"Émile": {}}'.encode("utf-8"))

@@ -306,6 +306,26 @@ class TestProgramme(TestAvecDossier):
         self.assertEqual(resultat.returncode, 1)
         self.assertIn("list", erreurs)
 
+    def test_phonenumbers_absent_message_sans_trace(self):
+        """Par contacts.py comme par python -m carnet."""
+        bloquer = "import sys, runpy; sys.modules['phonenumbers'] = None; "
+        lancements = {
+            "contacts.py": "sys.argv = ['contacts.py', '--console']; "
+                           "runpy.run_path('contacts.py', run_name='__main__')",
+            "-m carnet": "sys.path.insert(0, '.'); sys.argv = ['carnet', '--console']; "
+                         "runpy.run_module('carnet', run_name='__main__', alter_sys=True)",
+        }
+        for nom, code in lancements.items():
+            with self.subTest(lancement=nom):
+                resultat = subprocess.run(
+                    [sys.executable, "-I", "-c", bloquer + code],
+                    capture_output=True, cwd=self.projet, timeout=30,
+                )
+                erreurs = resultat.stderr.decode("utf-8", "replace")
+                self.assertEqual(resultat.returncode, 1, erreurs)
+                self.assertIn("pip install -r requirements.txt", erreurs)
+                self.assertNotIn("Traceback", erreurs)
+
 
 
 if __name__ == "__main__":

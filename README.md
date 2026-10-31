@@ -58,7 +58,9 @@ soit la façon dont ils sont tapés :
 | `01 23 45 67 89 poste 12` | `+33 1 23 45 67 89 ext. 12` |
 | `+1 650 253 0000` | `+1 650-253-0000` |
 
-Un numéro sans indicatif est considéré comme français. La validation suit les
+Un numéro sans indicatif est considéré comme français ; ceux des outre-mer
+composés à la française (`0692…`, `0590…`, `0596…`) reçoivent leur propre
+indicatif (`+262`, `+590`, `+596`...). La validation suit les
 plages attribuées par pays (bibliothèque `phonenumbers`) : un numéro d'une
 plage non attribuée est refusé à la saisie.
 

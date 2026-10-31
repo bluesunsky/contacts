@@ -12,7 +12,14 @@ from __future__ import annotations
 import re
 from dataclasses import dataclass, fields
 
-import phonenumbers
+try:
+    import phonenumbers
+except ModuleNotFoundError as e:
+    if e.name != "phonenumbers":
+        raise
+    from . import MESSAGE_PHONENUMBERS_ABSENT
+
+    raise ModuleNotFoundError(MESSAGE_PHONENUMBERS_ABSENT, name="phonenumbers") from None
 
 Fiche = dict[str, object]
 Contacts = dict[str, Fiche]
@@ -24,6 +31,17 @@ MOTIF_EMAIL_VALIDE = re.compile(r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
 
 # Un numéro sans indicatif (« 06 12 34 56 78 ») est considéré comme français.
 REGION_PAR_DEFAUT = "FR"
+# Préfixes nationaux des outre-mer (plan de numérotation ARCEP) et région
+# correspondante : fixe et mobile de chaque territoire.
+PREFIXES_OUTRE_MER = {
+    "0262": "RE", "0263": "RE", "0692": "RE", "0693": "RE",  # La Réunion
+    "0269": "YT", "0639": "YT",                              # Mayotte
+    "0590": "GP", "0690": "GP", "0691": "GP",                # Guadeloupe, St-Martin, St-Barth
+    "0594": "GF", "0694": "GF",                              # Guyane
+    "0596": "MQ", "0696": "MQ", "0697": "MQ",                # Martinique
+}
+# Saint-Pierre-et-Miquelon n'est pas dans le plan à 10 chiffres : ses
+# numéros se saisissent avec leur indicatif (+508).
 # Caractères admis dans un numéro saisi. Les lettres sont refusées : la
 # bibliothèque les convertirait en chiffres comme sur un clavier de téléphone.
 CARACTERES_TELEPHONE = re.compile(r"[\d\s().+/\-]+")
@@ -68,33 +86,59 @@ def erreur_obligatoire(valeur: str) -> str | None:
 # --------------------------------------------------------------------------
 
 
+def _region_du_numero(principal: str, region: str) -> str:
+    """Région à utiliser pour lire un numéro national.
+
+    Les outre-mer partagent le plan à 10 chiffres français (« 0692… » se
+    compose depuis la métropole) mais ont leur propre indicatif (+262...).
+    Seuls les préfixes que l'ARCEP leur attribue sont redirigés : essayer
+    leurs régions à l'aveugle ferait basculer des numéros métropolitains,
+    comme les numéros verts en 0800.
+    """
+    chiffres = re.sub(r"\D", "", principal)
+    national = not principal.startswith("+") and chiffres.startswith("0") and not chiffres.startswith("00")
+    if region == "FR" and national:
+        return PREFIXES_OUTRE_MER.get(chiffres[:4], region)
+    return region
+
+
 def normaliser_telephone(valeur: str, region: str = REGION_PAR_DEFAUT) -> str | None:
-    """Retourne le numéro au format international, "" s'il est vide, None s'il est invalide."""
-    valeur = valeur.strip()
+    """Retourne le numéro au format international, "" s'il est vide, None s'il est invalide.
+
+    Le résultat se relit toujours à l'identique : le poste est écrit
+    « ext. N » quel que soit le pays (la bibliothèque utiliserait sinon un
+    mot local comme « int » ou « Anexo », qu'elle ne sait pas relire).
+    """
+    valeur = re.sub(r"\s+", " ", valeur).strip()  # espaces insécables et fines compris
     if not valeur:
         return ""
     extension = MOTIF_EXTENSION.search(valeur)
-    principal = valeur[: extension.start()] if extension else valeur
+    principal = valeur[: extension.start()].strip() if extension else valeur
     if not CARACTERES_TELEPHONE.fullmatch(principal):
         return None
-    texte = f"{principal} ext. {extension.group(1)}" if extension else principal
     try:
-        numero = phonenumbers.parse(texte, region)
+        numero = phonenumbers.parse(principal, _region_du_numero(principal, region))
     except phonenumbers.NumberParseException:
         return None
     if not phonenumbers.is_valid_number(numero):
         return None
-    return phonenumbers.format_number(numero, phonenumbers.PhoneNumberFormat.INTERNATIONAL)
+    texte = phonenumbers.format_number(numero, phonenumbers.PhoneNumberFormat.INTERNATIONAL)
+    return f"{texte} ext. {extension.group(1)}" if extension else texte
 
 
 def uniformiser_telephone(valeur: str) -> str:
     """Met au format chaque numéro d'une valeur, y compris multiple (« a ::: b »).
 
-    Un numéro non reconnu est conservé tel quel : rien n'est jamais perdu.
+    Un numéro non reconnu est conservé tel quel. Si aucun numéro n'est
+    reconnu, la valeur est rendue strictement inchangée ; sinon seuls les
+    morceaux vides entre séparateurs disparaissent.
     """
     morceaux = [m.strip() for m in valeur.split(SEPARATEUR_GOOGLE.strip())]
+    formes = [normaliser_telephone(m) for m in morceaux]
+    if not any(formes):
+        return valeur
     return SEPARATEUR_GOOGLE.join(
-        normaliser_telephone(m) or m for m in morceaux if m
+        forme or morceau for morceau, forme in zip(morceaux, formes) if morceau
     )
 
 
