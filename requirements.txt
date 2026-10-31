@@ -1,3 +1,6 @@
+# Numéros de téléphone (validation et mise au format international)
+phonenumbers>=8.13
+
 # Interface graphique
 PyQt6>=6.5
 

@@ -14,7 +14,8 @@ python -m venv .venv
 pip install -r requirements.txt
 ```
 
-Le mode terminal ne nécessite aucune dépendance.
+`phonenumbers` est nécessaire dans tous les modes ; PyQt6 seulement pour la
+fenêtre.
 
 ## Lancer
 
@@ -45,6 +46,26 @@ seule la conserve, « - » efface le champ.
 La modification porte sur le nom, le prénom, le nom de famille, le téléphone
 et l'e-mail principaux et les notes. Les autres champs d'un contact importé de
 Google Contacts (numéros secondaires, adresse, entreprise...) sont conservés.
+
+## Numéros de téléphone
+
+Tous les numéros sont enregistrés au format international lisible, quelle que
+soit la façon dont ils sont tapés :
+
+| Saisie | Enregistré |
+|---|---|
+| `06 70 01 0475`, `06.70.01.04.75`, `0033670010475` | `+33 6 70 01 04 75` |
+| `01 23 45 67 89 poste 12` | `+33 1 23 45 67 89 ext. 12` |
+| `+1 650 253 0000` | `+1 650-253-0000` |
+
+Un numéro sans indicatif est considéré comme français. La validation suit les
+plages attribuées par pays (bibliothèque `phonenumbers`) : un numéro d'une
+plage non attribuée est refusé à la saisie.
+
+Un carnet importé ou modifié à la main est mis au format dès son ouverture,
+numéros secondaires compris : l'affichage est uniforme, et la forme uniforme
+est écrite dans le fichier au prochain enregistrement. Un numéro non reconnu
+est conservé tel quel.
 
 ## Organisation
 

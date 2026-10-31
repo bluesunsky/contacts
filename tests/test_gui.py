@@ -131,7 +131,7 @@ class TestFenetre(TestQt):
 
         self.assertEqual(fenetre.noms_affiches(), ["Ancien", "Jean Martin", "Marie Dupont"])
         self.assertEqual(fenetre.nom_selectionne(), "Ancien")
-        self.assertIn("0102030405", fenetre.detail.toPlainText())
+        self.assertIn("+33 1 02 03 04 05", fenetre.detail.toPlainText())  # mis au format au chargement
 
     def test_selection_affiche_la_fiche(self):
         fenetre = self.fenetre()
@@ -446,7 +446,7 @@ class TestDialogue(TestQt):
         self.assertEqual(dialogue.windowTitle(), "Modifier le contact")
         self.assertEqual(dialogue.bouton_valider.text(), "&Enregistrer")
         self.assertEqual(dialogue.champs["nom"].text(), "Marie Dupont")
-        self.assertEqual(dialogue.champs["telephone"].text(), "0612345678")
+        self.assertEqual(dialogue.champs["telephone"].text(), "+33 6 12 34 56 78")
         self.assertEqual(dialogue.notes.toPlainText(), "Note de Marie")
 
     def test_modification_vers_un_nom_existant(self):
@@ -457,6 +457,27 @@ class TestDialogue(TestQt):
 
         self.assertIn("« Jean Martin » existe déjà", dialogue.erreurs["nom"].text())
         self.assertIn("Marie Dupont", carnet)
+
+    def test_telephone_mis_au_format_en_quittant_le_champ(self):
+        _, dialogue = self.dialogue()
+        champ = dialogue.champs["telephone"]
+
+        champ.setText("06 70 01 0475")
+        champ.editingFinished.emit()
+        self.assertEqual(champ.text(), "+33 6 70 01 04 75")
+
+        champ.setText("06 12")  # invalide : laissé tel quel pour être corrigé
+        champ.editingFinished.emit()
+        self.assertEqual(champ.text(), "06 12")
+
+    def test_telephone_enregistre_au_format_meme_sans_quitter_le_champ(self):
+        _, dialogue = self.dialogue()
+        dialogue.champs["nom"].setText("Zoé")
+        dialogue.champs["telephone"].setText("0670010475")
+
+        dialogue.accept()
+
+        self.assertEqual(self.disque()["Zoé"]["Phone 1 - Value"], "+33 6 70 01 04 75")
 
 
 class TestLancement(TestQt):

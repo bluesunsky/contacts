@@ -229,20 +229,26 @@ def forcer_utf8() -> None:
             flux.reconfigure(encoding="utf-8", errors="replace")
 
 
-def main(chemin: Path = FICHIER_CONTACTS) -> int:
-    forcer_utf8()
+def _ouvrir(chemin: Path) -> Carnet | None:
+    """Ouvre le carnet, ou affiche pourquoi c'est impossible et retourne None."""
     try:
         carnet = Carnet(chemin)
     except ErreurChargement as e:
         print(f"❌ {e}", file=sys.stderr)
-        return 1
-
+        return None
     if carnet.fichier_mis_de_cote is not None:
         print(
             f"⚠️ Le fichier {chemin.name} est illisible ({carnet.detail_erreur_chargement}). "
             f"Il a été conservé sous {carnet.fichier_mis_de_cote.name} et un carnet vide est utilisé."
         )
+    return carnet
 
+
+def main(chemin: Path = FICHIER_CONTACTS) -> int:
+    forcer_utf8()
+    carnet = _ouvrir(chemin)
+    if carnet is None:
+        return 1
     try:
         menu(carnet)
     except (KeyboardInterrupt, EOFError):

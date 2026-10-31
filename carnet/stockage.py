@@ -64,10 +64,20 @@ def charger_contacts(chemin: Path = FICHIER_CONTACTS) -> ResultatChargement:
     return ResultatChargement(donnees)
 
 
-def _mettre_de_cote(chemin: Path) -> Path:
-    """Renomme un fichier abîmé en copie horodatée et retourne son chemin."""
+def _chemin_sauvegarde(chemin: Path) -> Path:
+    """Nom horodaté libre à côté du fichier : contacts.20261031-140501.bak."""
     horodatage = datetime.now().strftime("%Y%m%d-%H%M%S")
     sauvegarde = chemin.with_name(f"{chemin.stem}.{horodatage}.bak")
+    numero = 1
+    while sauvegarde.exists():  # deux sauvegardes dans la même seconde
+        sauvegarde = chemin.with_name(f"{chemin.stem}.{horodatage}-{numero}.bak")
+        numero += 1
+    return sauvegarde
+
+
+def _mettre_de_cote(chemin: Path) -> Path:
+    """Renomme un fichier abîmé en copie horodatée et retourne son chemin."""
+    sauvegarde = _chemin_sauvegarde(chemin)
     os.replace(chemin, sauvegarde)
     return sauvegarde
 

@@ -9,7 +9,10 @@ from carnet.modele import (
     Telephone,
     erreur_email,
     erreur_telephone,
+    normaliser_telephone,
     traduire_libelle,
+    uniformiser_telephone,
+    uniformiser_telephones_fiche,
     vue_contact,
 )
 
@@ -21,7 +24,7 @@ class TestValidation(unittest.TestCase):
                 self.assertIsNone(erreur_telephone(valeur))
 
     def test_telephones_refuses(self):
-        for valeur in ["abc", "12345", "06 12 34 56 78 poste 2"]:
+        for valeur in ["abc", "12345", "06 12 34 56 7A", "+33 6 12 34 56 7", "06 11 ::: 06 22"]:
             with self.subTest(valeur=valeur):
                 self.assertEqual(erreur_telephone(valeur), MESSAGE_TELEPHONE)
 
@@ -30,6 +33,66 @@ class TestValidation(unittest.TestCase):
         self.assertIsNone(erreur_email("bob@example.com"))
         self.assertEqual(erreur_email("pas-un-mail"), MESSAGE_EMAIL)
         self.assertEqual(erreur_email("a@b"), MESSAGE_EMAIL)
+
+
+class TestTelephone(unittest.TestCase):
+    def test_formes_diverses_mises_au_format_international(self):
+        cas = {
+            "06 70 01 0475": "+33 6 70 01 04 75",
+            "0670010475": "+33 6 70 01 04 75",
+            "06.70.01.04.75": "+33 6 70 01 04 75",
+            "+33 (0)6 70 01 04 75": "+33 6 70 01 04 75",
+            "0033 6 70 01 04 75": "+33 6 70 01 04 75",
+            "01 02 03 04 05": "+33 1 02 03 04 05",
+            "+1 650 253 0000": "+1 650-253-0000",
+            "+44 20 7946 0958": "+44 20 7946 0958",
+        }
+        for saisie, attendu in cas.items():
+            with self.subTest(saisie=saisie):
+                self.assertEqual(normaliser_telephone(saisie), attendu)
+
+    def test_extension(self):
+        for saisie in ["01 23 45 67 89 poste 12", "0123456789 ext. 12", "01 23 45 67 89 x12"]:
+            with self.subTest(saisie=saisie):
+                self.assertEqual(normaliser_telephone(saisie), "+33 1 23 45 67 89 ext. 12")
+
+    def test_vide_et_invalide(self):
+        self.assertEqual(normaliser_telephone("  "), "")
+        self.assertIsNone(normaliser_telephone("06 12 34 56 7"))
+        # Les lettres ne sont pas converties en chiffres comme sur un clavier.
+        self.assertIsNone(normaliser_telephone("06 12 34 56 7A"))
+
+    def test_valeur_multiple_et_non_reconnus_conserves(self):
+        valeur = "0670010475 ::: inconnu ::: +33612345678"
+
+        self.assertEqual(
+            uniformiser_telephone(valeur),
+            "+33 6 70 01 04 75 ::: inconnu ::: +33 6 12 34 56 78",
+        )
+
+    def test_saisie_mise_au_format_par_construction(self):
+        self.assertEqual(SaisieContact(nom="A", telephone="06 70 01 0475").telephone, "+33 6 70 01 04 75")
+        self.assertEqual(SaisieContact(nom="A", telephone="abc").telephone, "abc")  # gardé pour l'erreur
+
+    def test_fiche_entiere_uniformisee_sans_toucher_au_reste(self):
+        fiche = {"Phone 1 - Value": "0670010475", "Phone 2 - Value": "0102030405",
+                 "telephone": "0611111111", "Notes": "0612345678", "Phone 3 - Value": 42}
+
+        resultat = uniformiser_telephones_fiche(fiche)
+
+        self.assertEqual(resultat["Phone 1 - Value"], "+33 6 70 01 04 75")
+        self.assertEqual(resultat["Phone 2 - Value"], "+33 1 02 03 04 05")
+        self.assertEqual(resultat["telephone"], "+33 6 11 11 11 11")
+        self.assertEqual(resultat["Notes"], "0612345678")  # pas un champ téléphone
+        self.assertEqual(resultat["Phone 3 - Value"], 42)  # valeur non textuelle intacte
+        self.assertEqual(fiche["Phone 1 - Value"], "0670010475")  # copie
+
+    def test_modification_uniformise_aussi_les_numeros_secondaires(self):
+        fiche = {"Phone 2 - Value": "0102030405"}
+
+        resultat = SaisieContact(nom="A").appliquer(fiche)
+
+        self.assertEqual(resultat["Phone 2 - Value"], "+33 1 02 03 04 05")
 
 
 class TestSaisieContact(unittest.TestCase):
@@ -66,7 +129,7 @@ class TestSaisieContact(unittest.TestCase):
         fiche = SaisieContact(nom="Alice", telephone="0612345678").appliquer()
 
         self.assertEqual(fiche["First Name"], "")
-        self.assertEqual(fiche["Phone 1 - Value"], "0612345678")
+        self.assertEqual(fiche["Phone 1 - Value"], "+33 6 12 34 56 78")
         self.assertEqual(fiche["Phone 1 - Label"], "Mobile")
         self.assertEqual(fiche["E-mail 1 - Label"], "Home")
 
@@ -107,7 +170,7 @@ class TestSaisieContact(unittest.TestCase):
         resultat = SaisieContact(nom="A", telephone="0102030405").appliquer({"telephone": "0102030405"})
 
         self.assertNotIn("telephone", resultat)
-        self.assertEqual(resultat["Phone 1 - Value"], "0102030405")
+        self.assertEqual(resultat["Phone 1 - Value"], "+33 1 02 03 04 05")
 
 
 class TestVueContact(unittest.TestCase):

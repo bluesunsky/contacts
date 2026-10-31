@@ -11,7 +11,14 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from .modele import Contacts, Fiche, SaisieContact, VueContact, vue_contact
+from .modele import (
+    Contacts,
+    Fiche,
+    SaisieContact,
+    VueContact,
+    uniformiser_telephones_fiche,
+    vue_contact,
+)
 from .stockage import FICHIER_CONTACTS, charger_contacts, sauvegarder_contacts
 
 
@@ -49,13 +56,21 @@ class Carnet:
     désigne donc toujours le bon contact, même si un fichier importé
     contient des noms qui ne diffèrent que par la casse.
 
+    Les numéros de téléphone sont mis au format international dès le
+    chargement : l'affichage est toujours uniforme, même après une
+    modification manuelle du fichier, et la forme uniforme est écrite dans
+    le fichier au prochain enregistrement. Un numéro non reconnu est gardé
+    tel quel.
+
     Peut lever stockage.ErreurChargement à la construction.
     """
 
     def __init__(self, chemin: Path = FICHIER_CONTACTS) -> None:
         self.chemin = chemin
         resultat = charger_contacts(chemin)
-        self._contacts: Contacts = resultat.contacts
+        self._contacts: Contacts = {
+            nom: uniformiser_telephones_fiche(fiche) for nom, fiche in resultat.contacts.items()
+        }
         # Renseignés si le fichier était illisible : l'interface doit prévenir
         # l'utilisateur que l'original a été conservé sous ce nom.
         self.fichier_mis_de_cote = resultat.fichier_mis_de_cote

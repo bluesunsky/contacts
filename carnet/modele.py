@@ -12,6 +12,8 @@ from __future__ import annotations
 import re
 from dataclasses import dataclass, fields
 
+import phonenumbers
+
 Fiche = dict[str, object]
 Contacts = dict[str, Fiche]
 
@@ -19,10 +21,19 @@ Contacts = dict[str, Fiche]
 MOTIF_TELEPHONE = re.compile(r"^Phone (\d+) - Value$")
 MOTIF_EMAIL = re.compile(r"^E-mail (\d+) - Value$")
 MOTIF_EMAIL_VALIDE = re.compile(r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
-CARACTERES_TELEPHONE = re.compile(r"[\d\s().+\-]+")
-MIN_CHIFFRES_TELEPHONE = 6
 
-SEPARATEUR_ADRESSE_GOOGLE = " ::: "
+# Un numéro sans indicatif (« 06 12 34 56 78 ») est considéré comme français.
+REGION_PAR_DEFAUT = "FR"
+# Caractères admis dans un numéro saisi. Les lettres sont refusées : la
+# bibliothèque les convertirait en chiffres comme sur un clavier de téléphone.
+CARACTERES_TELEPHONE = re.compile(r"[\d\s().+/\-]+")
+# Extension en fin de numéro : « poste 12 », « ext. 12 », « x12 ».
+MOTIF_EXTENSION = re.compile(r"\s*(?:poste|ext\.?|x)\s*(\d+)\s*$", re.IGNORECASE)
+
+# Google sépare par ce motif les valeurs multiples d'un même champ, ainsi que
+# les lignes d'une adresse.
+SEPARATEUR_GOOGLE = " ::: "
+SEPARATEUR_ADRESSE_GOOGLE = SEPARATEUR_GOOGLE
 
 # Anciennes clés, antérieures à l'alignement sur le format Google.
 ANCIENNE_CLE_TELEPHONE = "telephone"
@@ -30,8 +41,8 @@ ANCIENNE_CLE_EMAIL = "email"
 
 MESSAGE_OBLIGATOIRE = "Ce champ est obligatoire."
 MESSAGE_TELEPHONE = (
-    f"Numéro invalide (au moins {MIN_CHIFFRES_TELEPHONE} chiffres ; "
-    "caractères autorisés : chiffres, espaces, + - ( ) .)."
+    "Numéro invalide. Exemples : 06 12 34 56 78, +33 6 12 34 56 78, "
+    "+1 650 253 0000, 01 23 45 67 89 poste 12."
 )
 MESSAGE_EMAIL = "Adresse e-mail invalide (attendu : nom@domaine.tld)."
 
@@ -48,15 +59,48 @@ def erreur_obligatoire(valeur: str) -> str | None:
     return MESSAGE_OBLIGATOIRE if not valeur.strip() else None
 
 
-def erreur_telephone(valeur: str) -> str | None:
-    """Un téléphone vide est accepté, sinon il doit ressembler à un numéro."""
+# --------------------------------------------------------------------------
+# Numéros de téléphone
+#
+# Tous les numéros sont enregistrés au format international lisible
+# (« +33 6 12 34 56 78 », « +1 650-253-0000 »), quelle que soit la façon
+# dont ils ont été tapés.
+# --------------------------------------------------------------------------
+
+
+def normaliser_telephone(valeur: str, region: str = REGION_PAR_DEFAUT) -> str | None:
+    """Retourne le numéro au format international, "" s'il est vide, None s'il est invalide."""
     valeur = valeur.strip()
     if not valeur:
+        return ""
+    extension = MOTIF_EXTENSION.search(valeur)
+    principal = valeur[: extension.start()] if extension else valeur
+    if not CARACTERES_TELEPHONE.fullmatch(principal):
         return None
-    assez_de_chiffres = len(re.sub(r"\D", "", valeur)) >= MIN_CHIFFRES_TELEPHONE
-    if assez_de_chiffres and CARACTERES_TELEPHONE.fullmatch(valeur):
+    texte = f"{principal} ext. {extension.group(1)}" if extension else principal
+    try:
+        numero = phonenumbers.parse(texte, region)
+    except phonenumbers.NumberParseException:
         return None
-    return MESSAGE_TELEPHONE
+    if not phonenumbers.is_valid_number(numero):
+        return None
+    return phonenumbers.format_number(numero, phonenumbers.PhoneNumberFormat.INTERNATIONAL)
+
+
+def uniformiser_telephone(valeur: str) -> str:
+    """Met au format chaque numéro d'une valeur, y compris multiple (« a ::: b »).
+
+    Un numéro non reconnu est conservé tel quel : rien n'est jamais perdu.
+    """
+    morceaux = [m.strip() for m in valeur.split(SEPARATEUR_GOOGLE.strip())]
+    return SEPARATEUR_GOOGLE.join(
+        normaliser_telephone(m) or m for m in morceaux if m
+    )
+
+
+def erreur_telephone(valeur: str) -> str | None:
+    """Un téléphone vide est accepté, sinon il doit être un numéro valide."""
+    return MESSAGE_TELEPHONE if normaliser_telephone(valeur) is None else None
 
 
 def erreur_email(valeur: str) -> str | None:
@@ -96,6 +140,10 @@ class SaisieContact:
     def __post_init__(self) -> None:
         for champ in fields(self):
             setattr(self, champ.name, getattr(self, champ.name).strip())
+        # Mise au format dès la saisie : tout numéro enregistré par l'une ou
+        # l'autre interface est donc uniforme. Un numéro invalide est gardé
+        # tel quel pour que la validation le signale.
+        self.telephone = uniformiser_telephone(self.telephone)
 
     @classmethod
     def depuis_fiche(cls, nom: str, fiche: Fiche) -> SaisieContact:
@@ -142,7 +190,22 @@ class SaisieContact:
         resultat["E-mail 1 - Label"] = _texte(resultat, "E-mail 1 - Label") or "Home"
         resultat["E-mail 1 - Value"] = self.email
         resultat["Notes"] = self.notes
-        return resultat
+        # Les numéros secondaires d'une fiche importée sont uniformisés aussi.
+        return uniformiser_telephones_fiche(resultat)
+
+
+def cles_telephone(fiche: Fiche) -> list[str]:
+    """Clés d'une fiche qui contiennent des numéros de téléphone."""
+    return [cle for cle in fiche if MOTIF_TELEPHONE.match(cle) or cle == ANCIENNE_CLE_TELEPHONE]
+
+
+def uniformiser_telephones_fiche(fiche: Fiche) -> Fiche:
+    """Retourne une copie de la fiche avec tous ses numéros mis au format."""
+    resultat = dict(fiche)
+    for cle in cles_telephone(fiche):
+        if isinstance(fiche[cle], str):
+            resultat[cle] = uniformiser_telephone(fiche[cle])
+    return resultat
 
 
 # --------------------------------------------------------------------------

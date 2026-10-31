@@ -14,7 +14,14 @@ from pathlib import Path
 # du script au chemin d'import (mode isolé -I, lancement via un raccourci...).
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
-from carnet.lanceur import main  # noqa: E402
+try:
+    from carnet.lanceur import main  # noqa: E402
+except ModuleNotFoundError as e:
+    if e.name != "phonenumbers":
+        raise
+    if hasattr(sys.stderr, "reconfigure"):
+        sys.stderr.reconfigure(encoding="utf-8", errors="replace")  # accents en sortie redirigée
+    sys.exit(str(e))  # message explicite, sans trace d'erreur
 
 if __name__ == "__main__":
     sys.exit(main())

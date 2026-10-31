@@ -73,7 +73,7 @@ class TestActions(TestAvecDossier):
         self.assertIn("Adresse e-mail invalide", sortie)
         self.assertIn("✅ Contact « Bob » ajouté", sortie)
         fiche = charger_contacts(self.chemin).contacts["Bob"]
-        self.assertEqual(fiche["Phone 1 - Value"], "06 12 34 56 78")
+        self.assertEqual(fiche["Phone 1 - Value"], "+33 6 12 34 56 78")
         self.assertEqual(fiche["E-mail 1 - Value"], "bob@example.com")
 
     def test_ajout_echec_ecriture_signale_sans_planter(self):
@@ -99,7 +99,7 @@ class TestActions(TestAvecDossier):
         fiche = charger_contacts(self.chemin).contacts["Bob"]
         self.assertEqual(fiche["First Name"], "Robert")
         self.assertEqual(fiche["Last Name"], "Martin")
-        self.assertEqual(fiche["Phone 1 - Value"], "0611111111")
+        self.assertEqual(fiche["Phone 1 - Value"], "+33 6 11 11 11 11")
         self.assertEqual(fiche["E-mail 1 - Value"], "")
         self.assertEqual(fiche["Notes"], "")
 
@@ -305,6 +305,7 @@ class TestProgramme(TestAvecDossier):
 
         self.assertEqual(resultat.returncode, 1)
         self.assertIn("list", erreurs)
+
 
 
 if __name__ == "__main__":

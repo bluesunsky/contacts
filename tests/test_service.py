@@ -66,7 +66,7 @@ class TestCarnet(TestAvecDossier):
         carnet.modifier("jean", SaisieContact(nom="Jean", telephone="06 11 11 11 11", notes="n"))
 
         fiche = self.disque()["Jean"]
-        self.assertEqual(fiche["Phone 1 - Value"], "06 11 11 11 11")
+        self.assertEqual(fiche["Phone 1 - Value"], "+33 6 11 11 11 11")
         self.assertEqual(fiche["Phone 2 - Value"], "0622")
         self.assertEqual(fiche["Organization Name"], "ACME")
         self.assertEqual(list(self.disque()), ["A", "Jean", "Z"])
@@ -111,7 +111,7 @@ class TestCarnet(TestAvecDossier):
 
         saisie = carnet.saisie("BOB")
 
-        self.assertEqual((saisie.nom, saisie.prenom, saisie.telephone), ("Bob", "Robert", "0102030405"))
+        self.assertEqual((saisie.nom, saisie.prenom, saisie.telephone), ("Bob", "Robert", "+33 1 02 03 04 05"))
 
     # -- Suppression et recherche ----------------------------------------
 
@@ -182,6 +182,50 @@ class TestCarnet(TestAvecDossier):
 
         self.assertEqual(carnet.noms, ["Dupont"])
         self.assertEqual(carnet.vue("Dupont").notes, "avant")
+
+    # -- Uniformisation des numéros existants ----------------------------
+
+    def test_numeros_mis_au_format_des_le_chargement(self):
+        carnet = self.carnet('{"B": {"Phone 1 - Value": "06 70 01 0475", "Phone 2 - Value": "0102030405"},'
+                             ' "Ancien": {"telephone": "01 02 03 04 05"}}')
+
+        self.assertEqual(
+            [t.valeur for t in carnet.vue("B").telephones],
+            ["+33 6 70 01 04 75", "+33 1 02 03 04 05"],
+        )
+        self.assertEqual(carnet.vue("Ancien").telephones[0].valeur, "+33 1 02 03 04 05")
+        self.assertEqual(carnet.saisie("B").telephone, "+33 6 70 01 04 75")
+
+    def test_chargement_ne_reecrit_pas_le_fichier(self):
+        contenu = '{"B": {"Phone 1 - Value": "06 70 01 0475"}}'
+
+        self.carnet(contenu)
+
+        self.assertEqual(self.chemin.read_text(encoding="utf-8"), contenu)
+
+    def test_forme_uniforme_ecrite_au_prochain_enregistrement(self):
+        carnet = self.carnet('{"B": {"Phone 1 - Value": "06 70 01 0475"},'
+                             ' "Bizarre": {"Phone 1 - Value": "le standard"}, "C": {}}')
+
+        carnet.supprimer("C")  # n'importe quelle modification
+
+        disque = self.disque()
+        self.assertEqual(disque["B"]["Phone 1 - Value"], "+33 6 70 01 04 75")
+        self.assertEqual(disque["Bizarre"]["Phone 1 - Value"], "le standard")  # non reconnu : intact
+
+    def test_modification_d_un_numero_importe_non_reconnu_conservee_a_l_identique(self):
+        carnet = self.carnet('{"Bob": {"Phone 1 - Value": "0611 ::: standard"}}')
+
+        carnet.modifier("Bob", SaisieContact(nom="Bob", telephone=carnet.saisie("Bob").telephone, notes="n"))
+
+        self.assertEqual(self.disque()["Bob"]["Phone 1 - Value"], "0611 ::: standard")
+
+    def test_ajout_enregistre_le_numero_au_format(self):
+        carnet = self.carnet()
+
+        carnet.ajouter(SaisieContact(nom="A", telephone="06.70.01.04.75"))
+
+        self.assertEqual(self.disque()["A"]["Phone 1 - Value"], "+33 6 70 01 04 75")
 
     # -- Divers ----------------------------------------------------------
 

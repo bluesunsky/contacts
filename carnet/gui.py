@@ -33,7 +33,7 @@ from PyQt6.QtWidgets import (
     QWidget,
 )
 
-from .modele import SaisieContact, VueContact
+from .modele import SaisieContact, VueContact, uniformiser_telephone
 from .service import Carnet, ContactExistant, DonneesInvalides, ErreurCarnet
 from .stockage import FICHIER_CONTACTS, ErreurChargement
 
@@ -203,6 +203,10 @@ class DialogueContact(QDialog):
             self.champs[cle] = saisie
             self.erreurs[cle] = erreur
 
+        # Le numéro est mis au format dès que l'on quitte le champ, pour que
+        # l'utilisateur voie la forme qui sera enregistrée.
+        self.champs["telephone"].editingFinished.connect(self._mettre_en_forme_telephone)
+
         self.notes = QPlainTextEdit(actuelle.notes if actuelle else "")
         self.notes.setFixedHeight(HAUTEUR_NOTES)
         self.notes.setTabChangesFocus(True)  # Tab passe aux boutons au lieu d'insérer \t
@@ -233,6 +237,12 @@ class DialogueContact(QDialog):
     def saisie(self) -> SaisieContact:
         valeurs = {cle: champ.text() for cle, champ in self.champs.items()}
         return SaisieContact(**valeurs, notes=self.notes.toPlainText())
+
+    def _mettre_en_forme_telephone(self) -> None:
+        champ = self.champs["telephone"]
+        forme = uniformiser_telephone(champ.text())
+        if forme != champ.text():
+            champ.setText(forme)
 
     def _effacer_erreur(self, cle: str) -> None:
         self.erreurs[cle].hide()
