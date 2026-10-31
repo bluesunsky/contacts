@@ -3,3 +3,4 @@ __pycache__/
 .venv/
 contacts.*.bak
 .contacts-*.tmp
+.pytest_cache/
