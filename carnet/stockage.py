@@ -18,13 +18,13 @@ FICHIER_CONTACTS = Path(__file__).resolve().parent.parent / "contacts.json"
 
 
 class ErreurChargement(Exception):
-    """Le fichier de contacts est du JSON valide mais n'a pas la forme attendue."""
+    """Le fichier existe mais ne peut pas être utilisé ; il n'a pas été modifié."""
 
 
 @dataclass(frozen=True)
 class ResultatChargement:
     contacts: Contacts
-    # Renseignés si le fichier était illisible et a été renommé.
+    # Renseignés si le fichier n'était pas du JSON valide et a été renommé.
     fichier_mis_de_cote: Path | None = None
     detail_erreur: str | None = None
 
@@ -32,16 +32,19 @@ class ResultatChargement:
 def charger_contacts(chemin: Path = FICHIER_CONTACTS) -> ResultatChargement:
     """Charge le carnet depuis le fichier JSON.
 
-    Un fichier absent donne un carnet vide. Un fichier illisible est renommé
-    en copie horodatée avant de repartir d'un carnet vide, afin de ne jamais
-    l'écraser. Un fichier de mauvaise forme lève ErreurChargement sans être
-    modifié.
+    - Fichier absent : carnet vide.
+    - JSON invalide : le fichier est renommé en copie horodatée, jamais
+      écrasé, et le carnet repart vide.
+    - Fichier illisible, mal encodé ou de mauvaise forme : ErreurChargement,
+      sans toucher au fichier.
+
+    Un fichier UTF-8 avec BOM, comme en produit le Bloc-notes, est accepté.
     """
     if not chemin.exists():
         return ResultatChargement({})
 
     try:
-        with open(chemin, "r", encoding="utf-8") as f:
+        with open(chemin, "r", encoding="utf-8-sig") as f:
             donnees = json.load(f)
     except json.JSONDecodeError as e:
         return ResultatChargement(
@@ -49,6 +52,13 @@ def charger_contacts(chemin: Path = FICHIER_CONTACTS) -> ResultatChargement:
             fichier_mis_de_cote=_mettre_de_cote(chemin),
             detail_erreur=f"{e.msg}, ligne {e.lineno}",
         )
+    except UnicodeDecodeError as e:
+        raise ErreurChargement(
+            f"{chemin.name} n'est pas encodé en UTF-8 (octet invalide en position {e.start}). "
+            "Réenregistrez-le en UTF-8."
+        ) from e
+    except OSError as e:
+        raise ErreurChargement(f"Impossible de lire {chemin.name} : {e.strerror or e}.") from e
 
     _verifier_forme(donnees, chemin)
     return ResultatChargement(donnees)
@@ -71,24 +81,36 @@ def _verifier_forme(donnees: object, chemin: Path) -> None:
     for nom, fiche in donnees.items():
         if not isinstance(fiche, dict):
             raise ErreurChargement(
-                f"La fiche '{nom}' dans {chemin.name} doit être un objet JSON, "
+                f"La fiche « {nom} » dans {chemin.name} doit être un objet JSON, "
                 f"pas {type(fiche).__name__}."
             )
 
 
+def _serialiser(contacts: Contacts) -> str:
+    texte = json.dumps(contacts, ensure_ascii=False, indent=4) + "\n"
+    try:
+        texte.encode("utf-8")
+    except UnicodeEncodeError:
+        # Un fichier importé peut contenir un caractère isolé non encodable
+        # en UTF-8 (demi-paire « \ud83d »). Échappé en \uXXXX, il reste du
+        # JSON valide et relisible, au prix d'accents échappés eux aussi.
+        texte = json.dumps(contacts, ensure_ascii=True, indent=4) + "\n"
+    return texte
+
+
 def sauvegarder_contacts(contacts: Contacts, chemin: Path = FICHIER_CONTACTS) -> None:
-    """Écrit le carnet de façon atomique.
+    """Écrit le carnet de façon atomique. Lève OSError en cas d'échec.
 
     Le contenu est écrit dans un fichier temporaire du même dossier, puis
     renommé par-dessus la cible : une interruption ne laisse jamais un
     fichier tronqué.
     """
+    texte = _serialiser(contacts)
     chemin.parent.mkdir(parents=True, exist_ok=True)
     fd, tmp = tempfile.mkstemp(dir=chemin.parent, prefix=".contacts-", suffix=".tmp")
     try:
         with os.fdopen(fd, "w", encoding="utf-8") as f:
-            json.dump(contacts, f, ensure_ascii=False, indent=4)
-            f.write("\n")
+            f.write(texte)
         os.replace(tmp, chemin)
     except BaseException:
         if os.path.exists(tmp):

@@ -11,18 +11,21 @@ from pathlib import Path
 from typing import Callable
 
 from .modele import (
-    NouveauContact,
+    MESSAGE_OBLIGATOIRE,
+    SaisieContact,
     VueContact,
     erreur_email,
     erreur_obligatoire,
     erreur_telephone,
 )
-from .service import Carnet, ErreurCarnet
+from .service import Carnet, ContactIntrouvable, ErreurCarnet
 from .stockage import FICHIER_CONTACTS, ErreurChargement
 
 Verification = Callable[[str], "str | None"]
 
 RETRAIT_ADRESSE = "\n      "
+# En modification : réponse vide = conserver, ce symbole = effacer le champ.
+EFFACER = "-"
 
 
 # --------------------------------------------------------------------------
@@ -38,6 +41,27 @@ def saisir(invite: str, verifier: Verification | None = None) -> str:
         if erreur is None:
             return valeur
         print(f"⚠️ {erreur}")
+
+
+def saisir_modification(
+    invite: str,
+    actuelle: str,
+    verifier: Verification | None = None,
+    obligatoire: bool = False,
+) -> str:
+    """Demande une nouvelle valeur ; vide conserve `actuelle`, EFFACER la vide."""
+    def verifier_modification(valeur: str) -> str | None:
+        if valeur == "":
+            return None
+        if valeur == EFFACER:
+            return MESSAGE_OBLIGATOIRE if obligatoire else None
+        return verifier(valeur) if verifier else None
+
+    rappel = f" [{actuelle}]" if actuelle else ""
+    reponse = saisir(f"{invite}{rappel} : ", verifier_modification)
+    if reponse == "":
+        return actuelle
+    return "" if reponse == EFFACER else reponse
 
 
 # --------------------------------------------------------------------------
@@ -71,6 +95,10 @@ def afficher_liste(vues: list[VueContact]) -> None:
         print(formater_contact(vue))
 
 
+def _echec_enregistrement(erreur: OSError) -> None:
+    print(f"❌ Impossible d'enregistrer le carnet : {erreur.strerror or erreur}")
+
+
 # --------------------------------------------------------------------------
 # Actions du menu
 # --------------------------------------------------------------------------
@@ -88,10 +116,10 @@ def action_ajouter(carnet: Carnet) -> None:
     existant = carnet.trouver_cle(nom)
     if existant is not None:
         # Vérifié avant les autres saisies pour ne pas les faire taper pour rien.
-        print(f"⚠️ Le contact '{existant}' existe déjà.")
+        print(f"⚠️ Le contact « {existant} » existe déjà.")
         return
 
-    contact = NouveauContact(
+    saisie = SaisieContact(
         nom=nom,
         prenom=saisir("Prénom (optionnel) : "),
         nom_famille=saisir("Nom de famille (optionnel) : "),
@@ -100,11 +128,14 @@ def action_ajouter(carnet: Carnet) -> None:
         notes=saisir("Notes / Commentaires : "),
     )
     try:
-        carnet.ajouter(contact)
+        carnet.ajouter(saisie)
     except ErreurCarnet as e:
         print(f"⚠️ {e}")
         return
-    print(f"✅ Contact '{contact.nom}' ajouté avec succès !")
+    except OSError as e:
+        _echec_enregistrement(e)
+        return
+    print(f"✅ Contact « {saisie.nom} » ajouté avec succès !")
 
 
 def action_rechercher(carnet: Carnet) -> None:
@@ -116,14 +147,46 @@ def action_rechercher(carnet: Carnet) -> None:
     afficher_liste(trouves)
 
 
+def action_modifier(carnet: Carnet) -> None:
+    nom = saisir("Nom du contact à modifier : ", erreur_obligatoire)
+    try:
+        actuelle = carnet.saisie(nom)
+    except ContactIntrouvable:
+        print("❌ Contact introuvable.")
+        return
+
+    print(f"Modification de « {actuelle.nom} ». Entrée seule : conserver ; "
+          f"« {EFFACER} » : effacer le champ.")
+    nouvelle = SaisieContact(
+        nom=saisir_modification("Nom", actuelle.nom, obligatoire=True),
+        prenom=saisir_modification("Prénom", actuelle.prenom),
+        nom_famille=saisir_modification("Nom de famille", actuelle.nom_famille),
+        telephone=saisir_modification("Téléphone", actuelle.telephone, erreur_telephone),
+        email=saisir_modification("Adresse email", actuelle.email, erreur_email),
+        notes=saisir_modification("Notes", actuelle.notes),
+    )
+    try:
+        enregistre = carnet.modifier(actuelle.nom, nouvelle)
+    except ErreurCarnet as e:
+        print(f"⚠️ {e}")
+        return
+    except OSError as e:
+        _echec_enregistrement(e)
+        return
+    print(f"✏️ Contact « {enregistre} » modifié avec succès.")
+
+
 def action_supprimer(carnet: Carnet) -> None:
     nom = saisir("Nom du contact à supprimer : ", erreur_obligatoire)
     try:
         supprime = carnet.supprimer(nom)
-    except ErreurCarnet:
+    except ContactIntrouvable:
         print("❌ Contact introuvable.")
         return
-    print(f"🗑️ Contact '{supprime}' supprimé avec succès.")
+    except OSError as e:
+        _echec_enregistrement(e)
+        return
+    print(f"🗑️ Contact « {supprime} » supprimé avec succès.")
 
 
 # --------------------------------------------------------------------------
@@ -134,7 +197,8 @@ ACTIONS: dict[str, tuple[str, Callable[[Carnet], None]]] = {
     "1": ("Afficher tous les contacts et détails", action_afficher),
     "2": ("Ajouter un contact", action_ajouter),
     "3": ("Rechercher un contact", action_rechercher),
-    "4": ("Supprimer un contact", action_supprimer),
+    "4": ("Modifier un contact", action_modifier),
+    "5": ("Supprimer un contact", action_supprimer),
 }
 CHOIX_QUITTER = str(len(ACTIONS) + 1)
 

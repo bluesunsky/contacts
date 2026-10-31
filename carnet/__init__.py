@@ -13,7 +13,7 @@ Les interfaces utilisent uniquement Carnet et les types du module modele.
 Ce paquet n'importe pas PyQt6 : le mode terminal fonctionne sans lui.
 """
 
-from .modele import Email, NouveauContact, Telephone, VueContact
+from .modele import Email, SaisieContact, Telephone, VueContact
 from .service import (
     Carnet,
     ContactExistant,
@@ -32,7 +32,7 @@ __all__ = [
     "ErreurCarnet",
     "ErreurChargement",
     "FICHIER_CONTACTS",
-    "NouveauContact",
+    "SaisieContact",
     "Telephone",
     "VueContact",
 ]

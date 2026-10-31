@@ -1,6 +1,7 @@
 """Tests du service : aucune saisie clavier ni affichage, comme pour une interface graphique."""
 
 import unittest
+from unittest import mock
 
 from carnet import (
     Carnet,
@@ -8,10 +9,12 @@ from carnet import (
     ContactIntrouvable,
     DonneesInvalides,
     ErreurChargement,
-    NouveauContact,
+    SaisieContact,
 )
 from carnet.stockage import charger_contacts
 from tests.aide import TestAvecDossier
+
+ECHEC_ECRITURE = mock.patch("carnet.service.sauvegarder_contacts", side_effect=OSError("disque plein"))
 
 
 class TestCarnet(TestAvecDossier):
@@ -20,20 +23,25 @@ class TestCarnet(TestAvecDossier):
             self.ecrire(contenu)
         return Carnet(self.chemin)
 
+    def disque(self) -> dict:
+        return charger_contacts(self.chemin).contacts
+
+    # -- Ajout -----------------------------------------------------------
+
     def test_ajout_persiste_et_retourne_le_nom(self):
         carnet = self.carnet()
 
-        nom = carnet.ajouter(NouveauContact(nom=" Alice ", email="alice@example.com"))
+        nom = carnet.ajouter(SaisieContact(nom=" Alice ", email="alice@example.com"))
 
         self.assertEqual(nom, "Alice")
-        self.assertIn("Alice", charger_contacts(self.chemin).contacts)
+        self.assertIn("Alice", self.disque())
         self.assertEqual(carnet.vue("alice").emails[0].valeur, "alice@example.com")
 
     def test_ajout_donnees_invalides_detaille_les_champs(self):
         carnet = self.carnet()
 
         with self.assertRaises(DonneesInvalides) as ctx:
-            carnet.ajouter(NouveauContact(nom="", email="x"))
+            carnet.ajouter(SaisieContact(nom="", email="x"))
 
         self.assertEqual(set(ctx.exception.erreurs), {"nom", "email"})
         self.assertEqual(len(carnet), 0)
@@ -43,10 +51,69 @@ class TestCarnet(TestAvecDossier):
         carnet = self.carnet('{"Dupont": {}}')
 
         with self.assertRaises(ContactExistant) as ctx:
-            carnet.ajouter(NouveauContact(nom="dupont"))
+            carnet.ajouter(SaisieContact(nom="dupont"))
 
         self.assertEqual(ctx.exception.nom, "Dupont")
         self.assertEqual(carnet.noms, ["Dupont"])
+
+    # -- Modification ----------------------------------------------------
+
+    def test_modification_conserve_les_champs_importes_et_la_position(self):
+        carnet = self.carnet(
+            '{"A": {}, "Jean": {"Phone 2 - Value": "0622", "Organization Name": "ACME"}, "Z": {}}'
+        )
+
+        carnet.modifier("jean", SaisieContact(nom="Jean", telephone="06 11 11 11 11", notes="n"))
+
+        fiche = self.disque()["Jean"]
+        self.assertEqual(fiche["Phone 1 - Value"], "06 11 11 11 11")
+        self.assertEqual(fiche["Phone 2 - Value"], "0622")
+        self.assertEqual(fiche["Organization Name"], "ACME")
+        self.assertEqual(list(self.disque()), ["A", "Jean", "Z"])
+
+    def test_renommage(self):
+        carnet = self.carnet('{"A": {}, "Jean": {"Notes": "x"}, "Z": {}}')
+
+        nom = carnet.modifier("Jean", SaisieContact(nom="Jean Martin", notes="x"))
+
+        self.assertEqual(nom, "Jean Martin")
+        self.assertEqual(carnet.noms, ["A", "Jean Martin", "Z"])
+        self.assertEqual(list(self.disque()), ["A", "Jean Martin", "Z"])
+
+    def test_renommage_changement_de_casse_seulement(self):
+        carnet = self.carnet('{"jean": {}}')
+
+        self.assertEqual(carnet.modifier("jean", SaisieContact(nom="Jean")), "Jean")
+        self.assertEqual(carnet.noms, ["Jean"])
+
+    def test_renommage_vers_un_nom_existant_refuse(self):
+        carnet = self.carnet('{"Jean": {}, "Marie": {}}')
+
+        with self.assertRaises(ContactExistant) as ctx:
+            carnet.modifier("Jean", SaisieContact(nom="MARIE"))
+
+        self.assertEqual(ctx.exception.nom, "Marie")
+        self.assertEqual(carnet.noms, ["Jean", "Marie"])
+
+    def test_modification_contact_inconnu(self):
+        with self.assertRaises(ContactIntrouvable):
+            self.carnet("{}").modifier("Inconnu", SaisieContact(nom="X"))
+
+    def test_modification_garde_une_valeur_importee_non_conforme(self):
+        carnet = self.carnet('{"Bob": {"Phone 1 - Value": "06 11 ::: 06 22"}}')
+
+        carnet.modifier("Bob", SaisieContact(nom="Bob", telephone="06 11 ::: 06 22", notes="ok"))
+
+        self.assertEqual(self.disque()["Bob"]["Notes"], "ok")
+
+    def test_saisie_reflete_la_fiche(self):
+        carnet = self.carnet('{"Bob": {"First Name": "Robert", "telephone": "0102030405"}}')
+
+        saisie = carnet.saisie("BOB")
+
+        self.assertEqual((saisie.nom, saisie.prenom, saisie.telephone), ("Bob", "Robert", "0102030405"))
+
+    # -- Suppression et recherche ----------------------------------------
 
     def test_suppression_insensible_a_la_casse(self):
         carnet = self.carnet('{"Dupont": {}, "Martin": {}}')
@@ -55,7 +122,7 @@ class TestCarnet(TestAvecDossier):
 
         self.assertEqual(supprime, "Dupont")
         self.assertEqual(carnet.noms, ["Martin"])
-        self.assertEqual(list(charger_contacts(self.chemin).contacts), ["Martin"])
+        self.assertEqual(list(self.disque()), ["Martin"])
 
     def test_suppression_contact_inconnu(self):
         carnet = self.carnet('{"Martin": {}}')
@@ -68,6 +135,55 @@ class TestCarnet(TestAvecDossier):
         carnet = self.carnet('{"Jean Martin": {}, "Marie Dupont": {}}')
 
         self.assertEqual([v.nom for v in carnet.rechercher("MART")], ["Jean Martin"])
+
+    # -- Noms importés atypiques -----------------------------------------
+
+    def test_nom_importe_avec_espaces_autour_reste_accessible(self):
+        carnet = self.carnet('{" Bob ": {"Notes": "x"}}')
+
+        self.assertEqual(carnet.vue(" Bob ").notes, "x")
+        self.assertEqual(carnet.vue("bob").nom, " Bob ")
+        self.assertEqual(carnet.supprimer("Bob"), " Bob ")
+
+    def test_noms_ne_differant_que_par_la_casse_designes_exactement(self):
+        carnet = self.carnet('{"Alice": {"Notes": "MAJ"}, "alice": {"Notes": "min"}}')
+
+        self.assertEqual(carnet.vue("alice").notes, "min")
+        carnet.supprimer("alice")
+
+        self.assertEqual(self.disque(), {"Alice": {"Notes": "MAJ"}})
+
+    # -- Échec d'écriture : mémoire et disque restent identiques ---------
+
+    def test_echec_ecriture_ajout_sans_effet(self):
+        carnet = self.carnet('{"Dupont": {}}')
+
+        with ECHEC_ECRITURE, self.assertRaises(OSError):
+            carnet.ajouter(SaisieContact(nom="Zoé"))
+
+        self.assertEqual(carnet.noms, ["Dupont"])
+        carnet.ajouter(SaisieContact(nom="Zoé"))  # un nouvel essai fonctionne
+        self.assertIn("Zoé", self.disque())
+
+    def test_echec_ecriture_suppression_sans_effet(self):
+        carnet = self.carnet('{"Dupont": {}}')
+
+        with ECHEC_ECRITURE, self.assertRaises(OSError):
+            carnet.supprimer("Dupont")
+
+        self.assertEqual(carnet.noms, ["Dupont"])
+        self.assertEqual(carnet.vue("Dupont").nom, "Dupont")
+
+    def test_echec_ecriture_modification_sans_effet(self):
+        carnet = self.carnet('{"Dupont": {"Notes": "avant"}}')
+
+        with ECHEC_ECRITURE, self.assertRaises(OSError):
+            carnet.modifier("Dupont", SaisieContact(nom="Durand", notes="après"))
+
+        self.assertEqual(carnet.noms, ["Dupont"])
+        self.assertEqual(carnet.vue("Dupont").notes, "avant")
+
+    # -- Divers ----------------------------------------------------------
 
     def test_contains_et_fiche(self):
         carnet = self.carnet('{"Dupont": {"Notes": "x"}}')

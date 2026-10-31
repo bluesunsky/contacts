@@ -3,7 +3,8 @@
 Les fiches sont stockées telles quelles, avec les clés du format d'export
 CSV de Google Contacts ("Phone 1 - Value", "E-mail 1 - Label", ...). Ce
 module en extrait une vue structurée (VueContact) que chaque interface
-présente à sa façon, et fournit les règles de validation des saisies.
+présente à sa façon, et fournit la saisie éditable (SaisieContact) avec ses
+règles de validation.
 """
 
 from __future__ import annotations
@@ -11,7 +12,7 @@ from __future__ import annotations
 import re
 from dataclasses import dataclass, fields
 
-Fiche = dict[str, str]
+Fiche = dict[str, object]
 Contacts = dict[str, Fiche]
 
 # Clés Google Contacts : "Phone 1 - Value", "E-mail 2 - Value", ...
@@ -22,6 +23,10 @@ CARACTERES_TELEPHONE = re.compile(r"[\d\s().+\-]+")
 MIN_CHIFFRES_TELEPHONE = 6
 
 SEPARATEUR_ADRESSE_GOOGLE = " ::: "
+
+# Anciennes clés, antérieures à l'alignement sur le format Google.
+ANCIENNE_CLE_TELEPHONE = "telephone"
+ANCIENNE_CLE_EMAIL = "email"
 
 MESSAGE_OBLIGATOIRE = "Ce champ est obligatoire."
 MESSAGE_TELEPHONE = (
@@ -62,14 +67,24 @@ def erreur_email(valeur: str) -> str | None:
     return MESSAGE_EMAIL
 
 
+def _texte(fiche: Fiche, cle: str) -> str:
+    """Valeur d'un champ sous forme de texte ; les nombres sont conservés (0 compris)."""
+    valeur = fiche.get(cle)
+    return "" if valeur is None else str(valeur).strip()
+
+
 # --------------------------------------------------------------------------
-# Création d'un contact
+# Saisie d'un contact (création et modification)
 # --------------------------------------------------------------------------
 
 
 @dataclass
-class NouveauContact:
-    """Données saisies pour créer un contact. Les espaces superflus sont retirés."""
+class SaisieContact:
+    """Champs éditables d'un contact. Les espaces superflus sont retirés.
+
+    Seuls le téléphone et l'e-mail principaux (n° 1) sont éditables ; les
+    autres champs d'une fiche importée sont conservés lors d'une modification.
+    """
 
     nom: str
     prenom: str = ""
@@ -82,26 +97,52 @@ class NouveauContact:
         for champ in fields(self):
             setattr(self, champ.name, getattr(self, champ.name).strip())
 
-    def erreurs(self) -> dict[str, str]:
-        """Retourne les erreurs de validation, indexées par nom de champ."""
+    @classmethod
+    def depuis_fiche(cls, nom: str, fiche: Fiche) -> SaisieContact:
+        """Valeurs actuelles d'une fiche, anciens formats compris."""
+        return cls(
+            nom=nom,
+            prenom=_texte(fiche, "First Name"),
+            nom_famille=_texte(fiche, "Last Name"),
+            telephone=_texte(fiche, "Phone 1 - Value") or _texte(fiche, ANCIENNE_CLE_TELEPHONE),
+            email=_texte(fiche, "E-mail 1 - Value") or _texte(fiche, ANCIENNE_CLE_EMAIL),
+            notes=_texte(fiche, "Notes"),
+        )
+
+    def erreurs(self, reference: SaisieContact | None = None) -> dict[str, str]:
+        """Erreurs de validation, indexées par nom de champ.
+
+        Avec `reference` (valeurs avant modification), un téléphone ou un
+        e-mail inchangé n'est pas revalidé : une valeur importée qui ne suit
+        pas nos règles ne bloque pas la modification des autres champs.
+        """
+        def inchange(champ: str) -> bool:
+            return reference is not None and getattr(self, champ) == getattr(reference, champ)
+
         verifications = {
             "nom": erreur_obligatoire(self.nom),
-            "telephone": erreur_telephone(self.telephone),
-            "email": erreur_email(self.email),
+            "telephone": None if inchange("telephone") else erreur_telephone(self.telephone),
+            "email": None if inchange("email") else erreur_email(self.email),
         }
         return {champ: msg for champ, msg in verifications.items() if msg}
 
-    def vers_fiche(self) -> Fiche:
-        """Convertit en fiche au format Google Contacts."""
-        return {
-            "First Name": self.prenom,
-            "Last Name": self.nom_famille,
-            "Phone 1 - Label": "Mobile",
-            "Phone 1 - Value": self.telephone,
-            "E-mail 1 - Label": "Home",
-            "E-mail 1 - Value": self.email,
-            "Notes": self.notes,
-        }
+    def appliquer(self, fiche: Fiche | None = None) -> Fiche:
+        """Retourne une nouvelle fiche au format Google avec ces valeurs.
+
+        Partant d'une fiche existante, les autres champs et les libellés
+        existants sont conservés, et les anciennes clés sont migrées.
+        """
+        resultat = dict(fiche or {})
+        resultat.pop(ANCIENNE_CLE_TELEPHONE, None)
+        resultat.pop(ANCIENNE_CLE_EMAIL, None)
+        resultat["First Name"] = self.prenom
+        resultat["Last Name"] = self.nom_famille
+        resultat["Phone 1 - Label"] = _texte(resultat, "Phone 1 - Label") or "Mobile"
+        resultat["Phone 1 - Value"] = self.telephone
+        resultat["E-mail 1 - Label"] = _texte(resultat, "E-mail 1 - Label") or "Home"
+        resultat["E-mail 1 - Value"] = self.email
+        resultat["Notes"] = self.notes
+        return resultat
 
 
 # --------------------------------------------------------------------------
@@ -135,8 +176,30 @@ class VueContact:
     notes: str = ""
 
 
-def _texte(fiche: Fiche, cle: str) -> str:
-    return str(fiche.get(cle) or "").strip()
+# Libellés usuels de Google Contacts, traduits à l'affichage uniquement : le
+# fichier conserve les libellés d'origine.
+LIBELLES_FR = {
+    "mobile": "Mobile",
+    "home": "Domicile",
+    "work": "Travail",
+    "other": "Autre",
+    "main": "Principal",
+    "home fax": "Fax domicile",
+    "work fax": "Fax travail",
+    "pager": "Bipeur",
+    "email": "E-mail",
+}
+LIBELLE_TELEPHONE = "Téléphone"
+LIBELLE_EMAIL = "E-mail"
+
+
+def traduire_libelle(libelle: str) -> str:
+    """Traduit un libellé Google usuel ; un libellé personnalisé est gardé tel quel.
+
+    Google préfixe le libellé du numéro principal par « * », retiré ici.
+    """
+    nettoye = libelle.strip().lstrip("*").strip()
+    return LIBELLES_FR.get(nettoye.casefold(), nettoye)
 
 
 def _champs_numerotes(
@@ -148,7 +211,7 @@ def _champs_numerotes(
         m = motif.match(cle)
         valeur = _texte(fiche, cle)
         if m and valeur:
-            label = _texte(fiche, cle.replace("Value", "Label")) or label_defaut
+            label = traduire_libelle(_texte(fiche, cle.replace("Value", "Label"))) or label_defaut
             resultats.append((int(m.group(1)), label, valeur))
     return sorted(resultats)
 
@@ -157,17 +220,17 @@ def vue_contact(nom: str, fiche: Fiche) -> VueContact:
     """Construit la vue d'affichage d'une fiche, anciens formats compris."""
     telephones = tuple(
         Telephone(label, valeur, numero)
-        for numero, label, valeur in _champs_numerotes(fiche, MOTIF_TELEPHONE, "Téléphone")
+        for numero, label, valeur in _champs_numerotes(fiche, MOTIF_TELEPHONE, LIBELLE_TELEPHONE)
     )
-    if not telephones and _texte(fiche, "telephone"):  # rétrocompatibilité
-        telephones = (Telephone("Téléphone", _texte(fiche, "telephone")),)
+    if not telephones and _texte(fiche, ANCIENNE_CLE_TELEPHONE):
+        telephones = (Telephone(LIBELLE_TELEPHONE, _texte(fiche, ANCIENNE_CLE_TELEPHONE)),)
 
     emails = tuple(
         Email(label, valeur)
-        for _, label, valeur in _champs_numerotes(fiche, MOTIF_EMAIL, "Email")
+        for _, label, valeur in _champs_numerotes(fiche, MOTIF_EMAIL, LIBELLE_EMAIL)
     )
-    if not emails and _texte(fiche, "email"):  # rétrocompatibilité
-        emails = (Email("Email", _texte(fiche, "email")),)
+    if not emails and _texte(fiche, ANCIENNE_CLE_EMAIL):
+        emails = (Email(LIBELLE_EMAIL, _texte(fiche, ANCIENNE_CLE_EMAIL)),)
 
     adresse_brute = _texte(fiche, "Address 1 - Formatted")
     adresse = tuple(

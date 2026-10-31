@@ -2,14 +2,16 @@
 
 Aucune fonction de ce module ne lit le clavier ni n'affiche quoi que ce
 soit : les problèmes sont signalés par des exceptions dérivées de
-ErreurCarnet, dont le message est prêt à être montré à l'utilisateur.
+ErreurCarnet, dont le message est prêt à être montré à l'utilisateur. Un
+échec d'écriture du fichier remonte en OSError, et le carnet en mémoire
+reste alors identique au fichier.
 """
 
 from __future__ import annotations
 
 from pathlib import Path
 
-from .modele import Contacts, Fiche, NouveauContact, VueContact, vue_contact
+from .modele import Contacts, Fiche, SaisieContact, VueContact, vue_contact
 from .stockage import FICHIER_CONTACTS, charger_contacts, sauvegarder_contacts
 
 
@@ -19,13 +21,13 @@ class ErreurCarnet(Exception):
 
 class ContactExistant(ErreurCarnet):
     def __init__(self, nom: str) -> None:
-        super().__init__(f"Le contact '{nom}' existe déjà.")
+        super().__init__(f"Le contact « {nom} » existe déjà.")
         self.nom = nom
 
 
 class ContactIntrouvable(ErreurCarnet):
     def __init__(self, nom: str) -> None:
-        super().__init__(f"Contact '{nom}' introuvable.")
+        super().__init__(f"Contact « {nom} » introuvable.")
         self.nom = nom
 
 
@@ -35,10 +37,18 @@ class DonneesInvalides(ErreurCarnet):
         self.erreurs = erreurs  # nom du champ -> message
 
 
+def _normaliser(nom: str) -> str:
+    return nom.strip().casefold()
+
+
 class Carnet:
     """Carnet de contacts persistant. Chaque modification est enregistrée aussitôt.
 
-    Les noms sont comparés sans tenir compte de la casse.
+    Un nom est d'abord cherché tel quel, puis sans tenir compte de la casse
+    ni des espaces autour. Une interface qui affiche les noms enregistrés
+    désigne donc toujours le bon contact, même si un fichier importé
+    contient des noms qui ne diffèrent que par la casse.
+
     Peut lever stockage.ErreurChargement à la construction.
     """
 
@@ -65,12 +75,19 @@ class Carnet:
 
     def trouver_cle(self, nom: str) -> str | None:
         """Retourne le nom exact enregistré correspondant à `nom`, ou None."""
-        cible = nom.strip().casefold()
-        return next((cle for cle in self._contacts if cle.casefold() == cible), None)
+        if nom in self._contacts:
+            return nom
+        cible = _normaliser(nom)
+        return next((cle for cle in self._contacts if _normaliser(cle) == cible), None)
 
     def fiche(self, nom: str) -> Fiche:
         """Retourne une copie de la fiche brute. Lève ContactIntrouvable."""
         return dict(self._contacts[self._cle_obligatoire(nom)])
+
+    def saisie(self, nom: str) -> SaisieContact:
+        """Valeurs éditables actuelles d'un contact. Lève ContactIntrouvable."""
+        cle = self._cle_obligatoire(nom)
+        return SaisieContact.depuis_fiche(cle, self._contacts[cle])
 
     def vue(self, nom: str) -> VueContact:
         """Retourne la vue d'affichage d'un contact. Lève ContactIntrouvable."""
@@ -91,30 +108,55 @@ class Carnet:
 
     # -- Écriture --------------------------------------------------------
 
-    def ajouter(self, contact: NouveauContact) -> str:
+    def ajouter(self, saisie: SaisieContact) -> str:
         """Ajoute et enregistre un contact, retourne son nom.
 
-        Lève DonneesInvalides ou ContactExistant.
+        Lève DonneesInvalides, ContactExistant ou OSError.
         """
-        erreurs = contact.erreurs()
+        erreurs = saisie.erreurs()
         if erreurs:
             raise DonneesInvalides(erreurs)
-        existant = self.trouver_cle(contact.nom)
+        existant = self.trouver_cle(saisie.nom)
         if existant is not None:
             raise ContactExistant(existant)
 
-        self._contacts[contact.nom] = contact.vers_fiche()
-        self._enregistrer()
-        return contact.nom
+        nouveaux = dict(self._contacts)
+        nouveaux[saisie.nom] = saisie.appliquer()
+        self._remplacer(nouveaux)
+        return saisie.nom
+
+    def modifier(self, nom: str, saisie: SaisieContact) -> str:
+        """Modifie et enregistre un contact, éventuellement renommé.
+
+        Les champs de la fiche non couverts par la saisie sont conservés, et
+        le contact garde sa place dans le carnet. Retourne le nom final.
+        Lève ContactIntrouvable, DonneesInvalides, ContactExistant ou OSError.
+        """
+        cle = self._cle_obligatoire(nom)
+        fiche = self._contacts[cle]
+        erreurs = saisie.erreurs(reference=SaisieContact.depuis_fiche(cle, fiche))
+        if erreurs:
+            raise DonneesInvalides(erreurs)
+        homonyme = self.trouver_cle(saisie.nom)
+        if homonyme is not None and homonyme != cle:
+            raise ContactExistant(homonyme)
+
+        nouvelle_fiche = saisie.appliquer(fiche)
+        nouveaux = {
+            (saisie.nom if k == cle else k): (nouvelle_fiche if k == cle else v)
+            for k, v in self._contacts.items()
+        }
+        self._remplacer(nouveaux)
+        return saisie.nom
 
     def supprimer(self, nom: str) -> str:
         """Supprime et enregistre, retourne le nom exact supprimé.
 
-        Lève ContactIntrouvable.
+        Lève ContactIntrouvable ou OSError.
         """
         cle = self._cle_obligatoire(nom)
-        del self._contacts[cle]
-        self._enregistrer()
+        nouveaux = {k: v for k, v in self._contacts.items() if k != cle}
+        self._remplacer(nouveaux)
         return cle
 
     # -- Interne ---------------------------------------------------------
@@ -125,5 +167,11 @@ class Carnet:
             raise ContactIntrouvable(nom.strip())
         return cle
 
-    def _enregistrer(self) -> None:
-        sauvegarder_contacts(self._contacts, self.chemin)
+    def _remplacer(self, nouveaux: Contacts) -> None:
+        """Enregistre d'abord, puis adopte le nouvel état.
+
+        Si l'écriture échoue, l'exception remonte et le carnet en mémoire
+        reste celui du fichier : aucune modification fantôme.
+        """
+        sauvegarder_contacts(nouveaux, self.chemin)
+        self._contacts = nouveaux

@@ -1,3 +1,4 @@
+import json
 import unittest
 from pathlib import Path
 from unittest import mock
@@ -31,6 +32,28 @@ class TestChargement(TestAvecDossier):
         self.assertEqual(resultat.fichier_mis_de_cote.read_text(encoding="utf-8"), "{ corrompu")
         self.assertIn("ligne 1", resultat.detail_erreur)
 
+    def test_bom_utf8_accepte(self):
+        self.chemin.write_bytes('﻿{"Émile": {}}'.encode("utf-8"))
+
+        resultat = charger_contacts(self.chemin)
+
+        self.assertEqual(resultat.contacts, {"Émile": {}})
+        self.assertIsNone(resultat.fichier_mis_de_cote)
+
+    def test_fichier_cp1252_refuse_sans_le_modifier(self):
+        contenu = '{"Émile": {}}'.encode("cp1252")
+        self.chemin.write_bytes(contenu)
+
+        with self.assertRaisesRegex(ErreurChargement, "UTF-8"):
+            charger_contacts(self.chemin)
+        self.assertEqual(self.chemin.read_bytes(), contenu)
+
+    def test_fichier_inaccessible_leve_erreur_chargement(self):
+        self.chemin.mkdir()  # un dossier à la place du fichier
+
+        with self.assertRaisesRegex(ErreurChargement, "Impossible de lire"):
+            charger_contacts(self.chemin)
+
     def test_json_liste_leve_une_erreur_sans_toucher_au_fichier(self):
         self.ecrire('[{"First Name": "A"}]')
 
@@ -57,11 +80,20 @@ class TestSauvegarde(TestAvecDossier):
         self.assertEqual(charger_contacts(self.chemin).contacts, donnees)
         self.assertIn("Hélène", self.chemin.read_text(encoding="utf-8"))
 
+    def test_caractere_isole_invalide_reste_enregistrable(self):
+        self.ecrire('{"A": {"Notes": "\\ud83d"}}')  # demi-paire UTF-16 seule
+        donnees = charger_contacts(self.chemin).contacts
+
+        sauvegarder_contacts(donnees, self.chemin)
+
+        self.assertEqual(charger_contacts(self.chemin).contacts, donnees)
+        json.loads(self.chemin.read_text(encoding="utf-8"))  # JSON toujours valide
+
     def test_echec_d_ecriture_laisse_le_fichier_intact_et_sans_temporaire(self):
         self.ecrire('{"Ancien": {}}')
 
-        with mock.patch("json.dump", side_effect=RuntimeError("coupure")):
-            with self.assertRaises(RuntimeError):
+        with mock.patch("carnet.stockage.os.replace", side_effect=OSError("disque plein")):
+            with self.assertRaises(OSError):
                 sauvegarder_contacts({"Nouveau": {}}, self.chemin)
 
         self.assertEqual(self.chemin.read_text(encoding="utf-8"), '{"Ancien": {}}')

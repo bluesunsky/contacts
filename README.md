@@ -27,8 +27,24 @@ python contacts.py --console    # terminal
 fenêtre affiche un message qui indique comment l'installer ou passer en mode
 terminal.
 
-Dans la fenêtre : Ctrl+N ajoute un contact, Suppr supprime le contact
-sélectionné, Ctrl+F place le curseur dans la recherche.
+Raccourcis de la fenêtre :
+
+| Touche | Action |
+|---|---|
+| Ctrl+N | Ajouter un contact |
+| F2, Entrée ou double-clic dans la liste | Modifier le contact sélectionné |
+| Suppr dans la liste | Supprimer le contact sélectionné, après confirmation |
+| Ctrl+F | Aller à la recherche |
+| Flèche bas ou Entrée dans la recherche | Aller à la liste |
+| Échap dans la recherche | Effacer la recherche |
+| Ctrl+Entrée dans le formulaire | Valider |
+
+En mode terminal, la modification affiche chaque valeur actuelle : Entrée
+seule la conserve, « - » efface le champ.
+
+La modification porte sur le nom, le prénom, le nom de famille, le téléphone
+et l'e-mail principaux et les notes. Les autres champs d'un contact importé de
+Google Contacts (numéros secondaires, adresse, entreprise...) sont conservés.
 
 ## Organisation
 
@@ -49,18 +65,22 @@ dérivant de `ErreurCarnet`, dont le message peut être affiché tel quel. Seul
 ## Utiliser `Carnet` depuis une autre interface
 
 ```python
-from carnet import Carnet, ContactExistant, DonneesInvalides, NouveauContact
+from carnet import Carnet, ContactExistant, DonneesInvalides, SaisieContact
 
 carnet = Carnet()
 for vue in carnet.vues():          # VueContact : nom, telephones, emails, adresse...
     ...
 
 try:
-    carnet.ajouter(NouveauContact(nom=..., telephone=..., email=...))
+    carnet.ajouter(SaisieContact(nom=..., telephone=..., email=...))
+    saisie = carnet.saisie("Dupont")               # valeurs éditables actuelles
+    carnet.modifier("Dupont", SaisieContact(nom="Durand", telephone=saisie.telephone))
 except DonneesInvalides as e:
     e.erreurs                      # {"telephone": "Numéro invalide..."} : message par champ
 except ContactExistant as e:
-    str(e)                         # "Le contact 'Dupont' existe déjà."
+    str(e)                         # "Le contact « Dupont » existe déjà."
+except OSError:
+    ...                            # écriture impossible ; le carnet en mémoire est inchangé
 ```
 
 Après la création de `Carnet`, vérifier `carnet.fichier_mis_de_cote` : s'il

@@ -5,10 +5,11 @@ from carnet.modele import (
     MESSAGE_OBLIGATOIRE,
     MESSAGE_TELEPHONE,
     Email,
-    NouveauContact,
+    SaisieContact,
     Telephone,
     erreur_email,
     erreur_telephone,
+    traduire_libelle,
     vue_contact,
 )
 
@@ -31,30 +32,82 @@ class TestValidation(unittest.TestCase):
         self.assertEqual(erreur_email("a@b"), MESSAGE_EMAIL)
 
 
-class TestNouveauContact(unittest.TestCase):
+class TestSaisieContact(unittest.TestCase):
     def test_espaces_retires(self):
-        contact = NouveauContact(nom="  Alice ", email=" a@b.fr ")
+        saisie = SaisieContact(nom="  Alice ", email=" a@b.fr ")
 
-        self.assertEqual(contact.nom, "Alice")
-        self.assertEqual(contact.email, "a@b.fr")
+        self.assertEqual(saisie.nom, "Alice")
+        self.assertEqual(saisie.email, "a@b.fr")
 
     def test_erreurs_par_champ(self):
-        contact = NouveauContact(nom=" ", telephone="abc", email="x")
+        saisie = SaisieContact(nom=" ", telephone="abc", email="x")
 
         self.assertEqual(
-            contact.erreurs(),
+            saisie.erreurs(),
             {"nom": MESSAGE_OBLIGATOIRE, "telephone": MESSAGE_TELEPHONE, "email": MESSAGE_EMAIL},
         )
 
-    def test_contact_valide_sans_erreur(self):
-        self.assertEqual(NouveauContact(nom="Alice").erreurs(), {})
+    def test_saisie_valide_sans_erreur(self):
+        self.assertEqual(SaisieContact(nom="Alice").erreurs(), {})
 
-    def test_fiche_au_format_google_et_prenom_omis_reste_vide(self):
-        fiche = NouveauContact(nom="Alice", telephone="0612345678").vers_fiche()
+    def test_valeur_importee_inchangee_non_revalidee(self):
+        reference = SaisieContact(nom="Bob", telephone="06 11 ::: 06 22", email="bob[at]ex")
+        saisie = SaisieContact(nom="Bob", telephone="06 11 ::: 06 22", email="bob[at]ex", notes="x")
+
+        self.assertEqual(saisie.erreurs(reference), {})
+
+    def test_valeur_modifiee_revalidee(self):
+        reference = SaisieContact(nom="Bob", telephone="06 11 ::: 06 22")
+        saisie = SaisieContact(nom="Bob", telephone="abc")
+
+        self.assertEqual(saisie.erreurs(reference), {"telephone": MESSAGE_TELEPHONE})
+
+    def test_nouvelle_fiche_au_format_google_et_prenom_omis_reste_vide(self):
+        fiche = SaisieContact(nom="Alice", telephone="0612345678").appliquer()
 
         self.assertEqual(fiche["First Name"], "")
         self.assertEqual(fiche["Phone 1 - Value"], "0612345678")
         self.assertEqual(fiche["Phone 1 - Label"], "Mobile")
+        self.assertEqual(fiche["E-mail 1 - Label"], "Home")
+
+    def test_depuis_fiche_google(self):
+        fiche = {
+            "First Name": "Jean", "Last Name": "Martin", "Phone 1 - Value": "0611",
+            "E-mail 1 - Value": "j@ex.fr", "Notes": "n", "Organization Name": "ACME",
+        }
+
+        saisie = SaisieContact.depuis_fiche("Jean Martin", fiche)
+
+        self.assertEqual(
+            saisie,
+            SaisieContact("Jean Martin", "Jean", "Martin", "0611", "j@ex.fr", "n"),
+        )
+
+    def test_depuis_fiche_ancien_format(self):
+        saisie = SaisieContact.depuis_fiche("Ancien", {"telephone": "0102", "email": "a@b.fr"})
+
+        self.assertEqual((saisie.telephone, saisie.email), ("0102", "a@b.fr"))
+
+    def test_appliquer_conserve_les_autres_champs_et_libelles(self):
+        fiche = {
+            "Phone 1 - Label": "Work", "Phone 1 - Value": "0611",
+            "Phone 2 - Value": "0622", "Organization Name": "ACME", "Notes": "ancienne",
+        }
+
+        resultat = SaisieContact(nom="Jean", telephone="0699", notes="nouvelle").appliquer(fiche)
+
+        self.assertEqual(resultat["Phone 1 - Label"], "Work")
+        self.assertEqual(resultat["Phone 1 - Value"], "0699")
+        self.assertEqual(resultat["Phone 2 - Value"], "0622")
+        self.assertEqual(resultat["Organization Name"], "ACME")
+        self.assertEqual(resultat["Notes"], "nouvelle")
+        self.assertEqual(fiche["Notes"], "ancienne")  # la fiche d'origine n'est pas modifiée
+
+    def test_appliquer_migre_l_ancien_format(self):
+        resultat = SaisieContact(nom="A", telephone="0102030405").appliquer({"telephone": "0102030405"})
+
+        self.assertNotIn("telephone", resultat)
+        self.assertEqual(resultat["Phone 1 - Value"], "0102030405")
 
 
 class TestVueContact(unittest.TestCase):
@@ -68,22 +121,33 @@ class TestVueContact(unittest.TestCase):
         self.assertEqual(vue.entreprise, "")
         self.assertEqual(vue.notes, "")
 
-    def test_telephones_tries_avec_label(self):
+    def test_valeurs_numeriques_conservees(self):
+        vue = vue_contact("Test", {"Phone 1 - Value": 612345678, "Notes": 0})
+
+        self.assertEqual(vue.telephones[0].valeur, "612345678")
+        self.assertEqual(vue.notes, "0")
+
+    def test_telephones_tries_et_libelles_traduits(self):
         vue = vue_contact("Test", {
             "Phone 2 - Label": "Work", "Phone 2 - Value": "222222",
-            "Phone 1 - Label": "Mobile", "Phone 1 - Value": "111111",
+            "Phone 1 - Label": "* Mobile", "Phone 1 - Value": "111111",
         })
 
         self.assertEqual(
             vue.telephones,
-            (Telephone("Mobile", "111111", 1), Telephone("Work", "222222", 2)),
+            (Telephone("Mobile", "111111", 1), Telephone("Travail", "222222", 2)),
         )
 
-    def test_label_par_defaut(self):
+    def test_libelles(self):
+        self.assertEqual(traduire_libelle("Home"), "Domicile")
+        self.assertEqual(traduire_libelle("* Work"), "Travail")
+        self.assertEqual(traduire_libelle("Perso"), "Perso")
+
+    def test_libelle_par_defaut(self):
         vue = vue_contact("Test", {"Phone 1 - Value": "111111", "E-mail 1 - Value": "a@b.fr"})
 
         self.assertEqual(vue.telephones[0].label, "Téléphone")
-        self.assertEqual(vue.emails[0].label, "Email")
+        self.assertEqual(vue.emails[0].label, "E-mail")
 
     def test_cle_ressemblante_ignoree(self):
         self.assertEqual(vue_contact("Test", {"Phone Value Notes": "x"}).telephones, ())
@@ -92,7 +156,7 @@ class TestVueContact(unittest.TestCase):
         vue = vue_contact("Test", {"telephone": "0102030405", "email": "a@b.fr"})
 
         self.assertEqual(vue.telephones, (Telephone("Téléphone", "0102030405"),))
-        self.assertEqual(vue.emails, (Email("Email", "a@b.fr"),))
+        self.assertEqual(vue.emails, (Email("E-mail", "a@b.fr"),))
 
     def test_adresse_decoupee_en_lignes(self):
         vue = vue_contact("Test", {"Address 1 - Formatted": "1 rue A ::: 75000 Paris ::: France"})
