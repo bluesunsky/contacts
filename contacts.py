@@ -59,7 +59,7 @@ def charger_contacts(chemin: Path = FICHIER_CONTACTS) -> Contacts:
     except json.JSONDecodeError as e:
         sauvegarde = _mettre_de_cote(chemin)
         print(
-            f"⚠️ Le fichier {chemin.name} est illisible ({e.msg}, ligne {e.lineno}). "
+            f"⚠️  Le fichier {chemin.name} est illisible ({e.msg}, ligne {e.lineno}). "
             f"Il a été conservé sous {sauvegarde.name} et un carnet vide est utilisé."
         )
         return {}
@@ -161,9 +161,9 @@ def afficher_contact(nom: str, infos: dict[str, str]) -> None:
     emails = _champs_numerotes(infos, MOTIF_EMAIL, "Email")
     if emails:
         for _, label, valeur in emails:
-            print(f"  ✉️ {label} : {valeur}")
+            print(f"  ✉️  {label} : {valeur}")
     elif infos.get("email"):  # rétrocompatibilité anciens contacts
-        print(f"  ✉️ Email : {infos['email']}")
+        print(f"  ✉️  Email : {infos['email']}")
 
     # Seuls les champs renseignés sont affichés.
     if infos.get("Organization Name"):
@@ -209,12 +209,12 @@ def saisir(
         valeur = input(invite).strip()
         if not valeur:
             if obligatoire:
-                print("⚠️ Ce champ est obligatoire.")
+                print("⚠️  Ce champ est obligatoire.")
                 continue
             return valeur
         if valider(valeur):
             return valeur
-        print(f"⚠️ {message_erreur}")
+        print(f"⚠️  {message_erreur}")
 
 
 def telephone_valide(valeur: str) -> bool:
@@ -236,7 +236,7 @@ def ajouter_contact(contacts: Contacts, chemin: Path = FICHIER_CONTACTS) -> None
     nom = saisir("Nom du contact : ", obligatoire=True)
     existant = trouver_cle(contacts, nom)
     if existant is not None:
-        print(f"⚠️ Le contact '{existant}' existe déjà.")
+        print(f"⚠️  Le contact '{existant}' existe déjà.")
         return
 
     prenom = saisir("Prénom (optionnel) : ")
@@ -287,7 +287,7 @@ def supprimer_contact(contacts: Contacts, chemin: Path = FICHIER_CONTACTS) -> No
 
     del contacts[cle]
     sauvegarder_contacts(contacts, chemin)
-    print(f"🗑️ Contact '{cle}' supprimé avec succès.")
+    print(f"🗑️  Contact '{cle}' supprimé avec succès.")
 
 
 # --------------------------------------------------------------------------
@@ -320,7 +320,7 @@ def menu() -> None:
             print("👋 Au revoir !")
             break
         else:
-            print("⚠️ Option invalide, veuillez réessayer.")
+            print("⚠️  Option invalide, veuillez réessayer.")
 
 
 def main() -> int:
