@@ -1,0 +1,61 @@
+{
+    "Marie Dupont": {
+        "First Name": "Marie",
+        "Last Name": "Dupont",
+        "Phone 1 - Label": "Mobile",
+        "Phone 1 - Value": "+33 6 12 34 56 78",
+        "E-mail 1 - Label": "Home",
+        "E-mail 1 - Value": "marie.dupont@example.com",
+        "Notes": "Rencontrée au salon de Lyon en mars."
+    },
+    "Jean Martin": {
+        "First Name": "Jean",
+        "Last Name": "Martin",
+        "Phone 1 - Label": "Mobile",
+        "Phone 1 - Value": "+33 6 98 76 54 32",
+        "Phone 2 - Label": "Work",
+        "Phone 2 - Value": "+33 1 23 45 67 89",
+        "E-mail 1 - Label": "Work",
+        "E-mail 1 - Value": "jean.martin@entreprise.example",
+        "E-mail 2 - Label": "Home",
+        "E-mail 2 - Value": "jmartin@example.org",
+        "Organization Name": "Entreprise Exemple SAS",
+        "Organization Title": "Responsable produit",
+        "Address 1 - Formatted": "12 rue de la Paix ::: 75002 Paris ::: France",
+        "Notes": "Préfère être contacté par e-mail."
+    },
+    "Sophie Bernard": {
+        "First Name": "Sophie",
+        "Last Name": "Bernard",
+        "Phone 1 - Label": "Home",
+        "Phone 1 - Value": "+33 4 56 78 90 12",
+        "E-mail 1 - Label": "Home",
+        "E-mail 1 - Value": "sophie.bernard@example.com",
+        "Organization Name": "Mairie de Grenoble",
+        "Organization Title": "Chargée de communication",
+        "Address 1 - Formatted": "8 avenue Alsace-Lorraine ::: 38000 Grenoble ::: France",
+        "Notes": ""
+    },
+    "Lucas Petit": {
+        "First Name": "Lucas",
+        "Last Name": "Petit",
+        "Phone 1 - Label": "Mobile",
+        "Phone 1 - Value": "+33 7 11 22 33 44",
+        "E-mail 1 - Label": "Home",
+        "E-mail 1 - Value": "",
+        "Notes": "Numéro uniquement, pas d'adresse e-mail connue."
+    },
+    "Ancien Contact": {
+        "telephone": "01 02 03 04 05",
+        "email": "ancien.contact@example.net"
+    },
+    "Nom": {
+        "First Name": "Nom",
+        "Last Name": "",
+        "Phone 1 - Label": "Mobile",
+        "Phone 1 - Value": "06 70 01 04 75",
+        "E-mail 1 - Label": "Home",
+        "E-mail 1 - Value": "a@serant.fr",
+        "Notes": ""
+    }
+}
