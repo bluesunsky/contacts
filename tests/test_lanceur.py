@@ -34,14 +34,17 @@ class TestLanceur(unittest.TestCase):
 
     def test_par_defaut_lance_la_fenetre(self):
         faux_gui = mock.Mock(main=mock.Mock(return_value=0))
-        with mock.patch.dict(sys.modules, {"carnet.gui": faux_gui}), \
-                mock.patch("carnet.cli.main") as cli:
+        with mock.patch.dict(sys.modules, {"carnet.gui": faux_gui}), mock.patch(
+            "carnet.cli.main"
+        ) as cli:
             self.assertEqual(lanceur.main([]), 0)
         faux_gui.main.assert_called_once()
         cli.assert_not_called()
 
     def test_pyqt_absent_message_explicite(self):
-        with bloquer_pyqt6(), mock.patch.dict(sys.modules), mock.patch("carnet.cli.main") as cli:
+        with bloquer_pyqt6(), mock.patch.dict(sys.modules), mock.patch(
+            "carnet.cli.main"
+        ) as cli:
             sys.modules.pop("carnet.gui", None)
             code, erreurs = self.lancer([])
 
@@ -54,12 +57,14 @@ class TestLanceur(unittest.TestCase):
     def test_pyqt_inutilisable_message_distinct(self):
         class GuiEnPanne:
             """Module dont l'import échoue sur une DLL Qt manquante."""
+
             def __getattr__(self, nom):
                 raise ImportError("DLL load failed", name="PyQt6.QtWidgets")
 
         # PyQt6 présent (même si ce Python ne l'a pas), mais inutilisable.
-        with mock.patch.dict(sys.modules, {"carnet.gui": GuiEnPanne()}), \
-                mock.patch("carnet.lanceur.importlib.util.find_spec", return_value=mock.Mock()):
+        with mock.patch.dict(sys.modules, {"carnet.gui": GuiEnPanne()}), mock.patch(
+            "carnet.lanceur.importlib.util.find_spec", return_value=mock.Mock()
+        ):
             code, erreurs = self.lancer([])
 
         self.assertEqual(code, 1)
