@@ -250,5 +250,28 @@ class TestCarnet(TestAvecDossier):
             self.carnet("[]")
 
 
+class TestCarnetSqlite(TestAvecDossier):
+    def test_operations_persistees_dans_la_base_dans_l_ordre(self):
+        base = self.dossier / "contacts.db"
+        carnet = Carnet(base)
+
+        carnet.ajouter(SaisieContact(nom="Alice", telephone="06 12 34 56 78"))
+        carnet.ajouter(SaisieContact(nom="Bob"))
+        carnet.ajouter(SaisieContact(nom="Chloé"))
+        carnet.modifier("Alice", SaisieContact(nom="Alice Martin", notes="renommée"))
+        carnet.supprimer("Bob")
+
+        rouvert = Carnet(base)
+        self.assertEqual(rouvert.noms, ["Alice Martin", "Chloé"])
+        self.assertEqual(rouvert.vue("Alice Martin").notes, "renommée")
+
+    def test_premiere_ouverture_importe_le_json_et_uniformise_les_numeros(self):
+        self.ecrire('{"Bob": {"Phone 1 - Value": "0612345678"}}')
+
+        carnet = Carnet(self.dossier / "contacts.db")
+
+        self.assertEqual(carnet.vue("Bob").telephones[0].valeur, "+33 6 12 34 56 78")
+
+
 if __name__ == "__main__":
     unittest.main()

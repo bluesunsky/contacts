@@ -3,7 +3,7 @@
 Organisation en couches, de la plus basse à la plus haute :
 
 - modele   : structure des fiches, validation, vue d'affichage (aucune E/S)
-- stockage : lecture et écriture du fichier JSON
+- stockage : lecture et écriture de la base SQLite (ou d'un fichier JSON)
 - service  : classe Carnet, point d'entrée unique pour toute interface
 - cli      : interface en ligne de commande
 - gui      : interface graphique PyQt6
